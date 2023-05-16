@@ -149,15 +149,22 @@ describe('Remote Frame Buffer Protocol Client', function () {
         container = null;
     });
 
-    function makeRFB(url, options) {
+    function makeRFB(url, options, state) {
         url = url || 'wss://host:8675';
         const rfb = new RFB(container, url, options);
         clock.tick();
         rfb._sock._websocket._open();
-        rfb._rfbConnectionState = 'connected';
+        rfb._rfbConnectionState = state;
         sinon.spy(rfb, "_disconnect");
         rfbs.push(rfb);
         return rfb;
+    }
+
+    function makeConnectingRFB(url, options) {
+        return makeRFB(url, options, 'connecting');
+    }
+    function makeConnectedRFB(url, options) {
+        return makeRFB(url, options, 'connected');
     }
 
     function sendData(rfb, data) {
@@ -228,7 +235,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
             let close;
 
             beforeEach(function () {
-                client = makeRFB();
+                client = makeConnectedRFB();
                 close = sinon.stub(Websock.prototype, "close");
             });
             afterEach(function () {
@@ -296,7 +303,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
     describe('Public API Basic Behavior', function () {
         let client;
         beforeEach(function () {
-            client = makeRFB();
+            client = makeConnectedRFB();
         });
 
         describe('#sendCtrlAlDel', function () {
@@ -525,7 +532,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
         let client;
 
         beforeEach(function () {
-            client = makeRFB();
+            client = makeConnectedRFB();
             container.style.width = '70px';
             container.style.height = '80px';
             client.clipViewport = true;
@@ -732,7 +739,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
     describe('Scaling', function () {
         let client;
         beforeEach(function () {
-            client = makeRFB();
+            client = makeConnectedRFB();
             container.style.width = '70px';
             container.style.height = '80px';
             client.scaleViewport = true;
@@ -817,7 +824,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
     describe('Remote resize', function () {
         let client;
         beforeEach(function () {
-            client = makeRFB();
+            client = makeConnectedRFB();
             client.resizeSession = true;
             container.style.width = '70px';
             container.style.height = '80px';
@@ -861,7 +868,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
         it('should request a resize when initially connecting', function () {
             // Create a new object that hasn't yet seen a
             // ExtendedDesktopSize rect
-            client = makeRFB();
+            client = makeConnectedRFB();
             client.resizeSession = true;
             container.style.width = '70px';
             container.style.height = '80px';
@@ -1037,7 +1044,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
         describe('#_fail', function () {
             let client;
             beforeEach(function () {
-                client = makeRFB();
+                client = makeConnectedRFB();
             });
 
             it('should close the WebSocket connection', function () {
@@ -1077,8 +1084,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
     describe('Protocol Initialization States', function () {
         let client;
         beforeEach(function () {
-            client = makeRFB();
-            client._rfbConnectionState = 'connecting';
+            client = makeConnectingRFB();
         });
 
         function sendVer(ver, client) {
@@ -1167,8 +1173,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
             describe('Repeater', function () {
                 beforeEach(function () {
-                    client = makeRFB('wss://host:8675', { repeaterID: "12345" });
-                    client._rfbConnectionState = 'connecting';
+                    client = makeConnectingRFB('wss://host:8675', { repeaterID: "12345" });
                 });
 
                 it('should interpret version 000.000 as a repeater', function () {
@@ -2288,24 +2293,21 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
         describe('ClientInitialisation', function () {
             it('should transition to the ServerInitialisation state', function () {
-                const client = makeRFB();
-                client._rfbConnectionState = 'connecting';
+                const client = makeConnectingRFB();
                 client._rfbInitState = 'SecurityResult';
                 sendData(client, [0, 0, 0, 0]);
                 expect(client._rfbInitState).to.equal('ServerInitialisation');
             });
 
             it('should send 1 if we are in shared mode', function () {
-                const client = makeRFB('wss://host:8675', { shared: true });
-                client._rfbConnectionState = 'connecting';
+                const client = makeConnectingRFB('wss://host:8675', { shared: true });
                 client._rfbInitState = 'SecurityResult';
                 sendData(client, [0, 0, 0, 0]);
                 expect(client._sock).to.have.sent(new Uint8Array([1]));
             });
 
             it('should send 0 if we are not in shared mode', function () {
-                const client = makeRFB('wss://host:8675', { shared: false });
-                client._rfbConnectionState = 'connecting';
+                const client = makeConnectingRFB('wss://host:8675', { shared: false });
                 client._rfbInitState = 'SecurityResult';
                 sendData(client, [0, 0, 0, 0]);
                 expect(client._sock).to.have.sent(new Uint8Array([0]));
@@ -2467,7 +2469,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
         let client;
 
         beforeEach(function () {
-            client = makeRFB();
+            client = makeConnectedRFB();
             client._fbName = 'some device';
             client._fbWidth = 640;
             client._fbHeight = 20;
@@ -3335,7 +3337,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
         let qemuKeyEvent;
 
         beforeEach(function () {
-            client = makeRFB();
+            client = makeConnectedRFB();
             client._display.resize(100, 100);
 
             // We need to disable this as focusing the canvas will
@@ -4527,7 +4529,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
         let client;
 
         beforeEach(function () {
-            client = makeRFB();
+            client = makeConnectedRFB();
             sinon.spy(RFB.messages, "clientEncodings");
         });
 
@@ -4629,7 +4631,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
         let client;
 
         beforeEach(function () {
-            client = makeRFB();
+            client = makeConnectedRFB();
             sinon.spy(RFB.messages, "clientEncodings");
         });
 
