@@ -699,6 +699,15 @@ export default class RFB extends EventTargetMixin {
             { detail: { name: this._fbName } }));
     }
 
+    _getCredentials(types) {
+        if (types.every(type => type in this._rfbCredentials)) {
+            return true;
+        }
+        this.dispatchEvent(new CustomEvent(
+            "credentialsrequired", { detail: { types: types } }));
+        return false;
+    }
+
     _saveExpectedClientSize() {
         this._expectedClientWidth = this._screen.clientWidth;
         this._expectedClientHeight = this._screen.clientHeight;
@@ -1499,12 +1508,7 @@ export default class RFB extends EventTargetMixin {
 
     // authentication
     _negotiateXvpAuth() {
-        if (this._rfbCredentials.username === undefined ||
-            this._rfbCredentials.password === undefined ||
-            this._rfbCredentials.target === undefined) {
-            this.dispatchEvent(new CustomEvent(
-                "credentialsrequired",
-                { detail: { types: ["username", "password", "target"] } }));
+        if (!this._getCredentials(["username", "password", "target"])) {
             return false;
         }
 
@@ -1604,11 +1608,7 @@ export default class RFB extends EventTargetMixin {
     }
 
     _negotiatePlainAuth() {
-        if (this._rfbCredentials.username === undefined ||
-            this._rfbCredentials.password === undefined) {
-            this.dispatchEvent(new CustomEvent(
-                "credentialsrequired",
-                { detail: { types: ["username", "password"] } }));
+        if (!this._getCredentials(["username", "password"])) {
             return false;
         }
 
@@ -1628,10 +1628,7 @@ export default class RFB extends EventTargetMixin {
     _negotiateStdVNCAuth() {
         if (this._sock.rQwait("auth challenge", 16)) { return false; }
 
-        if (this._rfbCredentials.password === undefined) {
-            this.dispatchEvent(new CustomEvent(
-                "credentialsrequired",
-                { detail: { types: ["password"] } }));
+        if (!this._getCredentials(["password"])) {
             return false;
         }
 
@@ -1645,12 +1642,7 @@ export default class RFB extends EventTargetMixin {
     }
 
     _negotiateARDAuth() {
-
-        if (this._rfbCredentials.username === undefined ||
-            this._rfbCredentials.password === undefined) {
-            this.dispatchEvent(new CustomEvent(
-                "credentialsrequired",
-                { detail: { types: ["username", "password"] } }));
+        if (!this._getCredentials(["username", "password"])) {
             return false;
         }
 
@@ -1715,11 +1707,7 @@ export default class RFB extends EventTargetMixin {
     }
 
     _negotiateTightUnixAuth() {
-        if (this._rfbCredentials.username === undefined ||
-            this._rfbCredentials.password === undefined) {
-            this.dispatchEvent(new CustomEvent(
-                "credentialsrequired",
-                { detail: { types: ["username", "password"] } }));
+        if (!this._getCredentials(["username", "password"])) {
             return false;
         }
 
@@ -1882,11 +1870,7 @@ export default class RFB extends EventTargetMixin {
     _negotiateMSLogonIIAuth() {
         if (this._sock.rQwait("mslogonii dh param", 24)) { return false; }
 
-        if (this._rfbCredentials.username === undefined ||
-            this._rfbCredentials.password === undefined) {
-            this.dispatchEvent(new CustomEvent(
-                "credentialsrequired",
-                { detail: { types: ["username", "password"] } }));
+        if (!this._getCredentials(["username", "password"])) {
             return false;
         }
 
