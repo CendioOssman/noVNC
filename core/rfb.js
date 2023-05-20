@@ -956,8 +956,6 @@ export default class RFB extends EventTargetMixin {
         // Transition to disconnected without waiting for socket to close
         this._updateConnectionState('disconnecting');
         this._updateConnectionState('disconnected');
-
-        return false;
     }
 
     _setCapability(cap, val) {
@@ -1382,7 +1380,8 @@ export default class RFB extends EventTargetMixin {
                 this._rfbVersion = 3.8;
                 break;
             default:
-                return this._fail("Invalid server version " + sversion);
+                this._fail("Invalid server version " + sversion);
+                return false;
         }
 
         if (isRepeater) {
@@ -1451,7 +1450,8 @@ export default class RFB extends EventTargetMixin {
             }
 
             if (this._rfbAuthScheme === -1) {
-                return this._fail("Unsupported security types (types: " + types + ")");
+                this._fail("Unsupported security types (types: " + types + ")");
+                return false;
             }
 
             this._sock.sQpush8(this._rfbAuthScheme);
@@ -1493,16 +1493,18 @@ export default class RFB extends EventTargetMixin {
                 { detail: { status: this._securityStatus,
                             reason: reason } }));
 
-            return this._fail("Security negotiation failed on " +
-                              this._securityContext +
-                              " (reason: " + reason + ")");
+            this._fail("Security negotiation failed on " +
+                       this._securityContext +
+                       " (reason: " + reason + ")");
+            return false;
         } else {
             this.dispatchEvent(new CustomEvent(
                 "securityfailure",
                 { detail: { status: this._securityStatus } }));
 
-            return this._fail("Security negotiation failed on " +
-                              this._securityContext);
+            this._fail("Security negotiation failed on " +
+                       this._securityContext);
+            return false;
         }
     }
 
@@ -1535,7 +1537,8 @@ export default class RFB extends EventTargetMixin {
             const minor = this._sock.rQshift8();
 
             if (!(major == 0 && minor == 2)) {
-                return this._fail("Unsupported VeNCrypt version " + major + "." + minor);
+                this._fail("Unsupported VeNCrypt version " + major + "." + minor);
+                return false;
             }
 
             this._sock.sQpush8(0);
@@ -1551,7 +1554,8 @@ export default class RFB extends EventTargetMixin {
             const res = this._sock.rQshift8();
 
             if (res != 0) {
-                return this._fail("VeNCrypt failure " + res);
+                this._fail("VeNCrypt failure " + res);
+                return false;
             }
 
             this._rfbVeNCryptState = 2;
@@ -1564,7 +1568,8 @@ export default class RFB extends EventTargetMixin {
 
             const subtypesLength = this._sock.rQshift8();
             if (subtypesLength < 1) {
-                return this._fail("VeNCrypt subtypes empty");
+                this._fail("VeNCrypt subtypes empty");
+                return false;
             }
 
             this._rfbVeNCryptSubtypesLength = subtypesLength;
@@ -1596,7 +1601,8 @@ export default class RFB extends EventTargetMixin {
             }
 
             if (this._rfbAuthScheme === -1) {
-                return this._fail("Unsupported security types (types: " + subtypes + ")");
+                this._fail("Unsupported security types (types: " + subtypes + ")");
+                return false;
             }
 
             this._sock.sQpush32(this._rfbAuthScheme);
@@ -1750,16 +1756,18 @@ export default class RFB extends EventTargetMixin {
         if (serverSupportedTunnelTypes[0]) {
             if (serverSupportedTunnelTypes[0].vendor != clientSupportedTunnelTypes[0].vendor ||
                 serverSupportedTunnelTypes[0].signature != clientSupportedTunnelTypes[0].signature) {
-                return this._fail("Client's tunnel type had the incorrect " +
-                                  "vendor or signature");
+                this._fail("Client's tunnel type had the incorrect " +
+                           "vendor or signature");
+                return false;
             }
             Log.Debug("Selected tunnel type: " + clientSupportedTunnelTypes[0]);
             this._sock.sQpush32(0); // use NOTUNNEL
             this._sock.flush();
             return false; // wait until we receive the sub auth count to continue
         } else {
-            return this._fail("Server wanted tunnels, but doesn't support " +
-                              "the notunnel type");
+            this._fail("Server wanted tunnels, but doesn't support " +
+                       "the notunnel type");
+            return false;
         }
     }
 
@@ -1820,13 +1828,15 @@ export default class RFB extends EventTargetMixin {
                         this._rfbAuthScheme = securityTypeUnixLogon;
                         return true;
                     default:
-                        return this._fail("Unsupported tiny auth scheme " +
-                                          "(scheme: " + authType + ")");
+                        this._fail("Unsupported tiny auth scheme " +
+                                   "(scheme: " + authType + ")");
+                        return false;
                 }
             }
         }
 
-        return this._fail("No supported sub-auth types!");
+        this._fail("No supported sub-auth types!");
+        return false;
     }
 
     _handleRSAAESCredentialsRequired(event) {
@@ -1940,8 +1950,9 @@ export default class RFB extends EventTargetMixin {
                 return this._negotiateMSLogonIIAuth();
 
             default:
-                return this._fail("Unsupported auth scheme (scheme: " +
-                                  this._rfbAuthScheme + ")");
+                this._fail("Unsupported auth scheme (scheme: " +
+                           this._rfbAuthScheme + ")");
+                return false;
         }
     }
 
@@ -1972,7 +1983,8 @@ export default class RFB extends EventTargetMixin {
                     "securityfailure",
                     { detail: { status: status } }));
 
-                return this._fail("Security handshake failed");
+                this._fail("Security handshake failed");
+                return false;
             }
         }
     }
@@ -2138,8 +2150,9 @@ export default class RFB extends EventTargetMixin {
                 return this._negotiateServerInit();
 
             default:
-                return this._fail("Unknown init state (state: " +
-                                  this._rfbInitState + ")");
+                this._fail("Unknown init state (state: " +
+                           this._rfbInitState + ")");
+                return false;
         }
     }
 
@@ -2154,7 +2167,8 @@ export default class RFB extends EventTargetMixin {
     _handleSetColourMapMsg() {
         Log.Debug("SetColorMapEntries");
 
-        return this._fail("Unexpected SetColorMapEntries message");
+        this._fail("Unexpected SetColorMapEntries message");
+        return false;
     }
 
     _handleServerCutText() {
@@ -2319,7 +2333,8 @@ export default class RFB extends EventTargetMixin {
                         { detail: { text: textData } }));
                 }
             } else {
-                return this._fail("Unexpected action in extended clipboard message: " + actions);
+                this._fail("Unexpected action in extended clipboard message: " + actions);
+                return false;
             }
         }
         return true;
@@ -2352,7 +2367,8 @@ export default class RFB extends EventTargetMixin {
          */
 
         if (!(flags & (1<<31))) {
-            return this._fail("Unexpected fence response");
+            this._fail("Unexpected fence response");
+            return false;
         }
 
         // Filter out unsupported flags
