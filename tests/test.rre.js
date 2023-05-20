@@ -9,17 +9,14 @@ import FakeWebSocket from './fake.websocket.js';
 
 async function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
     let sock;
-    let done;
 
     sock = new Websock;
     sock.open("ws://example.com");
 
     sock._websocket._receiveData(new Uint8Array(data));
-    done = await decoder.decodeRect(x, y, width, height, sock, display, depth);
+    await decoder.decodeRect(x, y, width, height, sock, display, depth);
 
     display.flip();
-
-    return done;
 }
 
 function push16(arr, num) {
@@ -70,7 +67,7 @@ describe('RRE Decoder', function () {
         push16(data, 2); // width: 2
         push16(data, 2); // height: 2
 
-        let done = await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
+        await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -79,7 +76,6 @@ describe('RRE Decoder', function () {
             0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255, 0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255
         ]);
 
-        expect(done).to.be.true;
         expect(display).to.have.displayed(targetData);
     });
 
@@ -88,10 +84,10 @@ describe('RRE Decoder', function () {
         display.fillRect(2, 0, 2, 2, [ 0x00, 0xff, 0x00 ]);
         display.fillRect(0, 2, 2, 2, [ 0x00, 0xff, 0x00 ]);
 
-        let done = await testDecodeRect(decoder, 1, 2, 0, 0,
-                                        [ 0x00, 0x00, 0x00, 0x00,
-                                          0xff, 0xff, 0xff, 0xff ],
-                                        display, 24);
+        await testDecodeRect(decoder, 1, 2, 0, 0,
+                             [ 0x00, 0x00, 0x00, 0x00,
+                               0xff, 0xff, 0xff, 0xff ],
+                             display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -100,7 +96,6 @@ describe('RRE Decoder', function () {
             0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255, 0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255
         ]);
 
-        expect(done).to.be.true;
         expect(display).to.have.displayed(targetData);
     });
 });

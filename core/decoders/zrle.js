@@ -23,13 +23,7 @@ export default class ZRLEDecoder {
 
     async decodeRect(x, y, width, height, sock, display, depth) {
         if (this._length === 0) {
-            if (sock.rQwait("ZLib data length", 4)) {
-                return false;
-            }
             this._length = await sock.rQshift32();
-        }
-        if (sock.rQwait("Zlib data", this._length)) {
-            return false;
         }
 
         const data = await sock.rQshiftBytes(this._length, false);
@@ -67,7 +61,6 @@ export default class ZRLEDecoder {
             }
         }
         this._length = 0;
-        return true;
     }
 
     _getBitsPerPixelInPalette(paletteSize) {

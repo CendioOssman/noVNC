@@ -57,13 +57,16 @@ export default class Websock {
         // called in init: this._rQ = new Uint8Array(this._rQbufferSize);
         this._rQ = null; // Receive queue
 
+        this._pendingLength = 0;
+        this._pendingResolve = null;
+        this._pendingReject = null;
+
         this._sQbufferSize = 1024 * 10;  // 10 KiB
         // called in init: this._sQ = new Uint8Array(this._sQbufferSize);
         this._sQlen = 0;
         this._sQ = null;  // Send queue
 
         this._eventHandlers = {
-            message: () => {},
             open: () => {},
             close: () => {},
             error: () => {}
@@ -96,10 +99,12 @@ export default class Websock {
 
     // Receive Queue
     async rQpeek8() {
+        await this._rQwait(1);
         return this._rQ[this._rQi];
     }
 
     async rQskipBytes(bytes) {
+        await this._rQwait(bytes);
         this._rQi += bytes;
     }
 
@@ -117,6 +122,7 @@ export default class Websock {
 
     // TODO(directxman12): test performance with these vs a DataView
     async _rQshift(bytes) {
+        await this._rQwait(bytes);
         let res = 0;
         for (let byte = bytes - 1; byte >= 0; byte--) {
             res += this._rQ[this._rQi++] << (byte * 8);
@@ -135,6 +141,7 @@ export default class Websock {
     }
 
     async rQshiftBytes(len, copy=true) {
+        await this._rQwait(len);
         this._rQi += len;
         if (copy) {
             return this._rQ.slice(this._rQi - len, this._rQi);
@@ -144,33 +151,19 @@ export default class Websock {
     }
 
     async rQshiftTo(target, len) {
+        await this._rQwait(len);
         // TODO: make this just use set with views when using a ArrayBuffer to store the rQ
         target.set(new Uint8Array(this._rQ.buffer, this._rQi, len));
         this._rQi += len;
     }
 
     async rQpeekBytes(len, copy=true) {
+        await this._rQwait(len);
         if (copy) {
             return this._rQ.slice(this._rQi, this._rQi + len);
         } else {
             return this._rQ.subarray(this._rQi, this._rQi + len);
         }
-    }
-
-    // Check to see if we must wait for 'num' bytes (default to FBU.bytes)
-    // to be available in the receive queue. Return true if we need to
-    // wait (and possibly print a debug message), otherwise false.
-    rQwait(msg, num, goback) {
-        if (this._rQlen - this._rQi < num) {
-            if (goback) {
-                if (this._rQi < goback) {
-                    throw new Error("rQwait cannot backup " + goback + " bytes");
-                }
-                this._rQi -= goback;
-            }
-            return true; // true means need more data
-        }
-        return false;
     }
 
     // Send Queue
@@ -279,6 +272,11 @@ export default class Websock {
 
         this._websocket.onclose = (e) => {
             Log.Debug(">> WebSock.onclose");
+            if (this._pendingReject !== null) {
+                this._pendingReject(new Error("WebSocket disconnected whilst reading"));
+                this._pendingResolve = null;
+                this._pendingReject = null;
+            }
             this._eventHandlers.close(e);
             Log.Debug("<< WebSock.onclose");
         };
@@ -356,10 +354,28 @@ export default class Websock {
         this._rQ.set(u8, this._rQlen);
         this._rQlen += u8.length;
 
-        if (this._rQlen - this._rQi > 0) {
-            this._eventHandlers.message();
-        } else {
-            Log.Debug("Ignoring empty message");
+        if ((this._pendingResolve !== null) &&
+            (this._rQlen - this._rQi >= this._pendingLength)) {
+            this._pendingResolve();
+            this._pendingResolve = null;
+            this._pendingReject = null;
         }
+    }
+
+    async _rQwait(len) {
+        if (len <= (this._rQlen - this._rQi)) {
+            return;
+        }
+
+        if ((this._pendingResolve !== null) ||
+            (this._pendingReject !== null)) {
+            throw Error("Multiple pending reads on socket");
+        }
+
+        this._pendingLength = len;
+        return new Promise((resolve, reject) => {
+            this._pendingResolve = resolve;
+            this._pendingReject = reject;
+        });
     }
 }

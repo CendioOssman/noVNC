@@ -14,7 +14,7 @@ export default class RawDecoder {
 
     async decodeRect(x, y, width, height, sock, display, depth) {
         if ((width === 0) || (height === 0)) {
-            return true;
+            return;
         }
 
         if (this._lines === 0) {
@@ -25,10 +25,6 @@ export default class RawDecoder {
         const bytesPerLine = width * pixelSize;
 
         while (this._lines > 0) {
-            if (sock.rQwait("RAW", bytesPerLine)) {
-                return false;
-            }
-
             const curY = y + (height - this._lines);
 
             let data = await sock.rQshiftBytes(bytesPerLine, false);
@@ -53,7 +49,5 @@ export default class RawDecoder {
             display.blitImage(x, curY, width, 1, data, 0);
             this._lines--;
         }
-
-        return true;
     }
 }

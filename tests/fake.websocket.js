@@ -55,16 +55,7 @@ export default class FakeWebSocket {
     }
 
     _receiveData(data) {
-        if (data.length < 4096) {
-            // Break apart the data to expose bugs where we assume data is
-            // neatly packaged
-            for (let i = 0;i < data.length;i++) {
-                let buf = data.slice(i, i+1);
-                this.onmessage(new MessageEvent("message", { 'data': buf.buffer }));
-            }
-        } else {
-            this.onmessage(new MessageEvent("message", { 'data': data.buffer }));
-        }
+        this.onmessage(new MessageEvent("message", { 'data': data.buffer }));
     }
 }
 

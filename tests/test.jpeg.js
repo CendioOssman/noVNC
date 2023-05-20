@@ -9,17 +9,14 @@ import FakeWebSocket from './fake.websocket.js';
 
 async function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
     let sock;
-    let done;
 
     sock = new Websock;
     sock.open("ws://example.com");
 
     sock._websocket._receiveData(new Uint8Array(data));
-    done = await decoder.decodeRect(x, y, width, height, sock, display, depth);
+    await decoder.decodeRect(x, y, width, height, sock, display, depth);
 
     display.flip();
-
-    return done;
 }
 
 describe('JPEG Decoder', function () {
@@ -125,8 +122,7 @@ describe('JPEG Decoder', function () {
             0xff, 0xd9,
         ];
 
-        let decodeDone = await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
-        expect(decodeDone).to.be.true;
+        await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
 
         let targetData = new Uint8Array([
             0xff, 0x00, 0x00, 255, 0xff, 0x00, 0x00, 255, 0xff, 0x00, 0x00, 255, 0xff, 0x00, 0x00, 255,
@@ -236,10 +232,7 @@ describe('JPEG Decoder', function () {
             0xff, 0xd9,
         ];
 
-        let decodeDone;
-
-        decodeDone = await testDecodeRect(decoder, 0, 0, 4, 4, data1, display, 24);
-        expect(decodeDone).to.be.true;
+        await testDecodeRect(decoder, 0, 0, 4, 4, data1, display, 24);
 
         display.fillRect(0, 0, 4, 4, [128, 128, 128, 255]);
 
@@ -260,8 +253,7 @@ describe('JPEG Decoder', function () {
             0xcf, 0xff, 0x00, 0x0b, 0xab, 0x1f, 0xff, 0xd9,
         ];
 
-        decodeDone = await testDecodeRect(decoder, 0, 0, 4, 4, data2, display, 24);
-        expect(decodeDone).to.be.true;
+        await testDecodeRect(decoder, 0, 0, 4, 4, data2, display, 24);
 
         let targetData = new Uint8Array([
             0xff, 0x00, 0x00, 255, 0xff, 0x00, 0x00, 255, 0xff, 0x00, 0x00, 255, 0xff, 0x00, 0x00, 255,

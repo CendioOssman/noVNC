@@ -9,19 +9,13 @@
 
 export default class CopyRectDecoder {
     async decodeRect(x, y, width, height, sock, display, depth) {
-        if (sock.rQwait("COPYRECT", 4)) {
-            return false;
-        }
-
         let deltaX = await sock.rQshift16();
         let deltaY = await sock.rQshift16();
 
         if ((width === 0) || (height === 0)) {
-            return true;
+            return;
         }
 
         display.copyImage(deltaX, deltaY, x, y, width, height);
-
-        return true;
     }
 }

@@ -43,32 +43,12 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
     constructor(sock, getCredentials) {
         super();
         this._hasStarted = false;
-        this._checkSock = null;
         this._checkCredentials = null;
         this._approveServerResolve = null;
-        this._sockReject = null;
         this._credentialsReject = null;
         this._approveServerReject = null;
         this._sock = sock;
         this._getCredentials = getCredentials;
-    }
-
-    _waitSockAsync(len) {
-        return new Promise((resolve, reject) => {
-            const hasData = () => !this._sock.rQwait('RA2', len);
-            if (hasData()) {
-                resolve();
-            } else {
-                this._checkSock = () => {
-                    if (hasData()) {
-                        resolve();
-                        this._checkSock = null;
-                        this._sockReject = null;
-                    }
-                };
-                this._sockReject = reject;
-            }
-        });
     }
 
     _waitApproveKeyAsync() {
@@ -105,9 +85,6 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
     }
 
     checkInternalEvents() {
-        if (this._checkSock !== null) {
-            this._checkSock();
-        }
         if (this._checkCredentials !== null) {
             this._checkCredentials();
         }
@@ -121,10 +98,6 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
     }
 
     disconnect() {
-        if (this._sockReject !== null) {
-            this._sockReject(new Error("disconnect normally"));
-            this._sockReject = null;
-        }
         if (this._credentialsReject !== null) {
             this._credentialsReject(new Error("disconnect normally"));
             this._credentialsReject = null;
@@ -138,7 +111,6 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
     async negotiateRA2neAuthAsync() {
         this._hasStarted = true;
         // 1: Receive server public key
-        await this._waitSockAsync(4);
         const serverKeyLengthBuffer = await this._sock.rQpeekBytes(4);
         const serverKeyLength = await this._sock.rQshift32();
         if (serverKeyLength < 1024) {
@@ -147,7 +119,6 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
             throw new Error("RA2: server public key is too long: " + serverKeyLength);
         }
         const serverKeyBytes = Math.ceil(serverKeyLength / 8);
-        await this._waitSockAsync(serverKeyBytes * 2);
         const serverN = await this._sock.rQshiftBytes(serverKeyBytes);
         const serverE = await this._sock.rQshiftBytes(serverKeyBytes);
         const serverRSACipher = await legacyCrypto.importKey(
@@ -198,7 +169,6 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
         this._sock.flush();
 
         // 4: Receive server random
-        await this._waitSockAsync(2);
         if (await this._sock.rQshift16() !== clientKeyBytes) {
             throw new Error("RA2: wrong encrypted message length");
         }
@@ -238,7 +208,6 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
         clientHash = new Uint8Array(clientHash);
         this._sock.sQpushBytes(await clientCipher.makeMessage(clientHash));
         this._sock.flush();
-        await this._waitSockAsync(2 + 20 + 16);
         if (await this._sock.rQshift16() !== 20) {
             throw new Error("RA2: wrong server hash");
         }
@@ -254,7 +223,6 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
         }
 
         // 7: Receive subtype
-        await this._waitSockAsync(2 + 1 + 16);
         if (await this._sock.rQshift16() !== 1) {
             throw new Error("RA2: wrong subtype");
         }

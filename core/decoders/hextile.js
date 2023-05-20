@@ -25,13 +25,7 @@ export default class HextileDecoder {
         }
 
         while (this._tiles > 0) {
-            let bytes = 1;
-
-            if (sock.rQwait("HEXTILE", bytes)) {
-                return false;
-            }
-
-            let subencoding = await sock.rQpeek8();
+            let subencoding = await sock.rQshift8();
             if (subencoding > 30) {  // Raw
                 throw new Error("Illegal hextile subencoding (subencoding: " +
                             subencoding + ")");
@@ -45,38 +39,6 @@ export default class HextileDecoder {
             const tw = Math.min(16, (x + width) - tx);
             const th = Math.min(16, (y + height) - ty);
 
-            // Figure out how much we are expecting
-            if (subencoding & 0x01) {  // Raw
-                bytes += tw * th * 4;
-            } else {
-                if (subencoding & 0x02) {  // Background
-                    bytes += 4;
-                }
-                if (subencoding & 0x04) {  // Foreground
-                    bytes += 4;
-                }
-                if (subencoding & 0x08) {  // AnySubrects
-                    bytes++;  // Since we aren't shifting it off
-
-                    if (sock.rQwait("HEXTILE", bytes)) {
-                        return false;
-                    }
-
-                    let subrects = (await sock.rQpeekBytes(bytes)).at(-1);
-                    if (subencoding & 0x10) {  // SubrectsColoured
-                        bytes += subrects * (4 + 2);
-                    } else {
-                        bytes += subrects * 2;
-                    }
-                }
-            }
-
-            if (sock.rQwait("HEXTILE", bytes)) {
-                return false;
-            }
-
-            // We know the encoding and have a whole tile
-            await sock.rQshift8();
             if (subencoding === 0) {
                 if (this._lastsubencoding & 0x01) {
                     // Weird: ignore blanks are RAW
@@ -127,8 +89,6 @@ export default class HextileDecoder {
             this._lastsubencoding = subencoding;
             this._tiles--;
         }
-
-        return true;
     }
 
     // start updating a tile

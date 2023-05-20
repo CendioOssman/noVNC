@@ -27,10 +27,6 @@ export default class TightDecoder {
 
     async decodeRect(x, y, width, height, sock, display, depth) {
         if (this._ctl === null) {
-            if (sock.rQwait("TIGHT compression-control", 1)) {
-                return false;
-            }
-
             this._ctl = await sock.rQshift8();
 
             // Reset streams if the server requests it
@@ -45,52 +41,34 @@ export default class TightDecoder {
             this._ctl = this._ctl >> 4;
         }
 
-        let ret;
-
         if (this._ctl === 0x08) {
-            ret = await this._fillRect(x, y, width, height,
-                                       sock, display, depth);
+            await this._fillRect(x, y, width, height,
+                                 sock, display, depth);
         } else if (this._ctl === 0x09) {
-            ret = await this._jpegRect(x, y, width, height,
-                                       sock, display, depth);
+            await this._jpegRect(x, y, width, height,
+                                 sock, display, depth);
         } else if (this._ctl === 0x0A) {
-            ret = await this._pngRect(x, y, width, height,
-                                      sock, display, depth);
+            await this._pngRect(x, y, width, height,
+                                sock, display, depth);
         } else if ((this._ctl & 0x08) == 0) {
-            ret = await this._basicRect(this._ctl, x, y, width, height,
-                                        sock, display, depth);
+            await this._basicRect(this._ctl, x, y, width, height,
+                                  sock, display, depth);
         } else {
             throw new Error("Illegal tight compression received (ctl: " +
                                    this._ctl + ")");
         }
 
-        if (ret) {
-            this._ctl = null;
-        }
-
-        return ret;
+        this._ctl = null;
     }
 
     async _fillRect(x, y, width, height, sock, display, depth) {
-        if (sock.rQwait("TIGHT", 3)) {
-            return false;
-        }
-
         let pixel = await sock.rQshiftBytes(3);
         display.fillRect(x, y, width, height, pixel, false);
-
-        return true;
     }
 
     async _jpegRect(x, y, width, height, sock, display, depth) {
         let data = await this._readData(sock);
-        if (data === null) {
-            return false;
-        }
-
         display.imageRect(x, y, width, height, "image/jpeg", data);
-
-        return true;
     }
 
     async _pngRect(x, y, width, height, sock, display, depth) {
@@ -100,10 +78,6 @@ export default class TightDecoder {
     async _basicRect(ctl, x, y, width, height, sock, display, depth) {
         if (this._filter === null) {
             if (ctl & 0x4) {
-                if (sock.rQwait("TIGHT", 1)) {
-                    return false;
-                }
-
                 this._filter = await sock.rQshift8();
             } else {
                 // Implicit CopyFilter
@@ -113,31 +87,25 @@ export default class TightDecoder {
 
         let streamId = ctl & 0x3;
 
-        let ret;
-
         switch (this._filter) {
             case 0: // CopyFilter
-                ret = await this._copyFilter(streamId, x, y, width, height,
-                                             sock, display, depth);
+                await this._copyFilter(streamId, x, y, width, height,
+                                       sock, display, depth);
                 break;
             case 1: // PaletteFilter
-                ret = await this._paletteFilter(streamId, x, y, width, height,
-                                                sock, display, depth);
+                await this._paletteFilter(streamId, x, y, width, height,
+                                          sock, display, depth);
                 break;
             case 2: // GradientFilter
-                ret = await this._gradientFilter(streamId, x, y, width, height,
-                                                 sock, display, depth);
+                await this._gradientFilter(streamId, x, y, width, height,
+                                           sock, display, depth);
                 break;
             default:
                 throw new Error("Illegal tight filter received (ctl: " +
                                        this._filter + ")");
         }
 
-        if (ret) {
-            this._filter = null;
-        }
-
-        return ret;
+        this._filter = null;
     }
 
     async _copyFilter(streamId, x, y, width, height, sock, display, depth) {
@@ -145,20 +113,13 @@ export default class TightDecoder {
         let data;
 
         if (uncompressedSize === 0) {
-            return true;
+            return;
         }
 
         if (uncompressedSize < 12) {
-            if (sock.rQwait("TIGHT", uncompressedSize)) {
-                return false;
-            }
-
             data = await sock.rQshiftBytes(uncompressedSize);
         } else {
             data = await this._readData(sock);
-            if (data === null) {
-                return false;
-            }
 
             this._zlibs[streamId].setInput(data);
             data = this._zlibs[streamId].inflate(uncompressedSize);
@@ -174,22 +135,12 @@ export default class TightDecoder {
         }
 
         display.blitImage(x, y, width, height, rgbx, 0, false);
-
-        return true;
     }
 
     async _paletteFilter(streamId, x, y, width, height, sock, display, depth) {
         if (this._numColors === 0) {
-            if (sock.rQwait("TIGHT palette", 1)) {
-                return false;
-            }
-
             const numColors = await sock.rQpeek8() + 1;
             const paletteSize = numColors * 3;
-
-            if (sock.rQwait("TIGHT palette", 1 + paletteSize)) {
-                return false;
-            }
 
             this._numColors = numColors;
             await sock.rQskipBytes(1);
@@ -204,20 +155,13 @@ export default class TightDecoder {
         let data;
 
         if (uncompressedSize === 0) {
-            return true;
+            return;
         }
 
         if (uncompressedSize < 12) {
-            if (sock.rQwait("TIGHT", uncompressedSize)) {
-                return false;
-            }
-
             data = await sock.rQshiftBytes(uncompressedSize);
         } else {
             data = await this._readData(sock);
-            if (data === null) {
-                return false;
-            }
 
             this._zlibs[streamId].setInput(data);
             data = this._zlibs[streamId].inflate(uncompressedSize);
@@ -232,8 +176,6 @@ export default class TightDecoder {
         }
 
         this._numColors = 0;
-
-        return true;
     }
 
     _monoRect(x, y, width, height, data, palette, display) {
@@ -290,10 +232,6 @@ export default class TightDecoder {
 
     async _readData(sock) {
         if (this._len === 0) {
-            if (sock.rQwait("TIGHT", 3)) {
-                return null;
-            }
-
             let byte;
 
             byte = await sock.rQshift8();
@@ -306,10 +244,6 @@ export default class TightDecoder {
                     this._len |= byte << 14;
                 }
             }
-        }
-
-        if (sock.rQwait("TIGHT", this._len)) {
-            return null;
         }
 
         let data = await sock.rQshiftBytes(this._len, false);

@@ -113,38 +113,6 @@ describe('Websock', function () {
                 expect(bytes.buffer.byteLength).to.not.equal(bytes.length);
             });
         });
-
-        describe('rQwait', function () {
-            beforeEach(function () {
-                websock._receiveData(new Uint8Array([0xab, 0xcd, 0x12, 0x34,
-                                                     0x88, 0xee, 0x11, 0x33]));
-            });
-
-            it('should return true if there are not enough bytes in the receive queue', function () {
-                expect(sock.rQwait('hi', 9)).to.be.true;
-            });
-
-            it('should return false if there are enough bytes in the receive queue', function () {
-                expect(sock.rQwait('hi', 8)).to.be.false;
-            });
-
-            it('should return true and reduce rQi by "goback" if there are not enough bytes', async function () {
-                expect(await sock.rQshift32()).to.equal(0xabcd1234);
-                expect(sock.rQwait('hi', 8, 2)).to.be.true;
-                expect(await sock.rQshift32()).to.equal(0x123488ee);
-            });
-
-            it('should raise an error if we try to go back more than possible', async function () {
-                expect(await sock.rQshift32()).to.equal(0xabcd1234);
-                expect(() => sock.rQwait('hi', 8, 6)).to.throw(Error);
-            });
-
-            it('should not reduce rQi if there are enough bytes', async function () {
-                expect(await sock.rQshift32()).to.equal(0xabcd1234);
-                expect(sock.rQwait('hi', 4, 2)).to.be.false;
-                expect(await sock.rQshift32()).to.equal(0x88ee1133);
-            });
-        });
     });
 
     describe('Send queue methods', function () {
@@ -551,6 +519,87 @@ describe('Websock', function () {
         });
     });
 
+    describe('WebSocket Receive Promise', function () {
+        let sock, ws;
+        beforeEach(function () {
+            sock = new Websock();
+            ws = new FakeWebSocket();
+            ws._open();
+            sock.attach(ws);
+        });
+
+        async function flushPromises(p) {
+            // Promises execute on the microtask queue, which is emptied
+            // before anything on the task queue is allowed to execute
+            await new Promise((resolve, reject) => {
+                setTimeout(resolve);
+            });
+        }
+
+        async function promiseState(p) {
+            let t = {};
+            return await Promise.race([p, t])
+                .then(v => ((v === t) ? "pending" : "fulfilled"),
+                      () => "rejected");
+        }
+
+        it('should resolve immediately if data is available', async function () {
+            ws._receiveData(new Uint8Array([1, 2, 3]));
+            let promise = sock.rQshift16();
+            await flushPromises();
+            expect(await promiseState(promise)).to.equal('fulfilled');
+        });
+
+        it('should stay pending if there is no data', async function () {
+            let promise = sock.rQshift16();
+            await flushPromises();
+            expect(await promiseState(promise)).to.equal('pending');
+        });
+
+        it('should stay pending if there insufficient data', async function () {
+            ws._receiveData(new Uint8Array([1]));
+            let promise = sock.rQshift16();
+            await flushPromises();
+            expect(await promiseState(promise)).to.equal('pending');
+        });
+
+        it('should resolve once there is sufficient data', async function () {
+            ws._receiveData(new Uint8Array([1]));
+            let promise = sock.rQshift16();
+            await flushPromises();
+            expect(await promiseState(promise)).to.equal('pending');
+            ws._receiveData(new Uint8Array([2]));
+            await flushPromises();
+            expect(await promiseState(promise)).to.equal('fulfilled');
+        });
+
+        it('should stay pending if more data is still insufficient', async function () {
+            ws._receiveData(new Uint8Array([1]));
+            let promise = sock.rQshift32();
+            await flushPromises();
+            expect(await promiseState(promise)).to.equal('pending');
+            ws._receiveData(new Uint8Array([2]));
+            await flushPromises();
+            expect(await promiseState(promise)).to.equal('pending');
+        });
+
+        it('should reject multiple operations at once', async function () {
+            sock.rQshift16();
+            await flushPromises();
+            let promise = sock.rQshift16();
+            await flushPromises();
+            expect(await promiseState(promise)).to.equal('rejected');
+        });
+
+        it('should reject if the connection closes', async function () {
+            let promise = sock.rQshift16();
+            await flushPromises();
+            ws.close(1006, "Foo");
+            await flushPromises();
+            expect(await promiseState(promise)).to.equal('rejected');
+        });
+    });
+
     describe('WebSocket Receiving', function () {
         let sock;
         beforeEach(function () {
@@ -562,22 +611,6 @@ describe('Websock', function () {
             const msg = { data: new Uint8Array([1, 2, 3]) };
             sock._recvMessage(msg);
             expect(await sock.rQshiftStr(3)).to.equal('\x01\x02\x03');
-        });
-
-        it('should call the message event handler if present', function () {
-            sock._eventHandlers.message = sinon.spy();
-            const msg = { data: new Uint8Array([1, 2, 3]).buffer };
-            sock._mode = 'binary';
-            sock._recvMessage(msg);
-            expect(sock._eventHandlers.message).to.have.been.calledOnce;
-        });
-
-        it('should not call the message event handler if there is nothing in the receive queue', function () {
-            sock._eventHandlers.message = sinon.spy();
-            const msg = { data: new Uint8Array([]).buffer };
-            sock._mode = 'binary';
-            sock._recvMessage(msg);
-            expect(sock._eventHandlers.message).not.to.have.been.called;
         });
 
         it('should compact the receive queue when fully read', function () {

@@ -12,13 +12,7 @@ import TightDecoder from './tight.js';
 export default class TightPNGDecoder extends TightDecoder {
     async _pngRect(x, y, width, height, sock, display, depth) {
         let data = await this._readData(sock);
-        if (data === null) {
-            return false;
-        }
-
         display.imageRect(x, y, width, height, "image/png", data);
-
-        return true;
     }
 
     async _basicRect(ctl, x, y, width, height, sock, display, depth) {

@@ -9,17 +9,14 @@ import FakeWebSocket from './fake.websocket.js';
 
 async function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
     let sock;
-    let done;
 
     sock = new Websock;
     sock.open("ws://example.com");
 
     sock._websocket._receiveData(new Uint8Array(data));
-    done = await decoder.decodeRect(x, y, width, height, sock, display, depth);
+    await decoder.decodeRect(x, y, width, height, sock, display, depth);
 
     display.flip();
-
-    return done;
 }
 
 describe('TightPng Decoder', function () {
@@ -113,8 +110,7 @@ describe('TightPng Decoder', function () {
             0xae, 0x42, 0x60, 0x82,
         ];
 
-        let decodeDone = await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
-        expect(decodeDone).to.be.true;
+        await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
 
         let targetData = new Uint8Array([
             0xff, 0x00, 0x00, 255, 0xff, 0x00, 0x00, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,

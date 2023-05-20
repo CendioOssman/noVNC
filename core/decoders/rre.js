@@ -14,10 +14,6 @@ export default class RREDecoder {
 
     async decodeRect(x, y, width, height, sock, display, depth) {
         if (this._subrects === 0) {
-            if (sock.rQwait("RRE", 4 + 4)) {
-                return false;
-            }
-
             this._subrects = await sock.rQshift32();
 
             let color = await sock.rQshiftBytes(4);  // Background
@@ -25,10 +21,6 @@ export default class RREDecoder {
         }
 
         while (this._subrects > 0) {
-            if (sock.rQwait("RRE", 4 + 8)) {
-                return false;
-            }
-
             let color = await sock.rQshiftBytes(4);
             let sx = await sock.rQshift16();
             let sy = await sock.rQshift16();
@@ -38,7 +30,5 @@ export default class RREDecoder {
 
             this._subrects--;
         }
-
-        return true;
     }
 }

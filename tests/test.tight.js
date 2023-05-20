@@ -9,17 +9,14 @@ import FakeWebSocket from './fake.websocket.js';
 
 async function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
     let sock;
-    let done;
 
     sock = new Websock;
     sock.open("ws://example.com");
 
     sock._websocket._receiveData(new Uint8Array(data));
-    done = await decoder.decodeRect(x, y, width, height, sock, display, depth);
+    await decoder.decodeRect(x, y, width, height, sock, display, depth);
 
     display.flip();
-
-    return done;
 }
 
 describe('Tight Decoder', function () {
@@ -36,9 +33,9 @@ describe('Tight Decoder', function () {
     });
 
     it('should handle fill rects', async function () {
-        let done = await testDecodeRect(decoder, 0, 0, 4, 4,
-                                        [0x80, 0xff, 0x88, 0x44],
-                                        display, 24);
+        await testDecodeRect(decoder, 0, 0, 4, 4,
+                             [0x80, 0xff, 0x88, 0x44],
+                             display, 24);
 
         let targetData = new Uint8Array([
             0xff, 0x88, 0x44, 255, 0xff, 0x88, 0x44, 255, 0xff, 0x88, 0x44, 255, 0xff, 0x88, 0x44, 255,
@@ -47,31 +44,21 @@ describe('Tight Decoder', function () {
             0xff, 0x88, 0x44, 255, 0xff, 0x88, 0x44, 255, 0xff, 0x88, 0x44, 255, 0xff, 0x88, 0x44, 255,
         ]);
 
-        expect(done).to.be.true;
         expect(display).to.have.displayed(targetData);
     });
 
     it('should handle uncompressed copy rects', async function () {
-        let done;
         let blueData = [ 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0xff ];
         let greenData = [ 0x00, 0x00, 0xff, 0x00, 0x00, 0xff, 0x00 ];
 
-        done = await testDecodeRect(decoder, 0, 0, 2, 1, blueData, display, 24);
-        expect(done).to.be.true;
-        done = await testDecodeRect(decoder, 0, 1, 2, 1, blueData, display, 24);
-        expect(done).to.be.true;
-        done = await testDecodeRect(decoder, 2, 0, 2, 1, greenData, display, 24);
-        expect(done).to.be.true;
-        done = await testDecodeRect(decoder, 2, 1, 2, 1, greenData, display, 24);
-        expect(done).to.be.true;
-        done = await testDecodeRect(decoder, 0, 2, 2, 1, greenData, display, 24);
-        expect(done).to.be.true;
-        done = await testDecodeRect(decoder, 0, 3, 2, 1, greenData, display, 24);
-        expect(done).to.be.true;
-        done = await testDecodeRect(decoder, 2, 2, 2, 1, blueData, display, 24);
-        expect(done).to.be.true;
-        done = await testDecodeRect(decoder, 2, 3, 2, 1, blueData, display, 24);
-        expect(done).to.be.true;
+        await testDecodeRect(decoder, 0, 0, 2, 1, blueData, display, 24);
+        await testDecodeRect(decoder, 0, 1, 2, 1, blueData, display, 24);
+        await testDecodeRect(decoder, 2, 0, 2, 1, greenData, display, 24);
+        await testDecodeRect(decoder, 2, 1, 2, 1, greenData, display, 24);
+        await testDecodeRect(decoder, 0, 2, 2, 1, greenData, display, 24);
+        await testDecodeRect(decoder, 0, 3, 2, 1, greenData, display, 24);
+        await testDecodeRect(decoder, 2, 2, 2, 1, blueData, display, 24);
+        await testDecodeRect(decoder, 2, 3, 2, 1, blueData, display, 24);
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -92,7 +79,7 @@ describe('Tight Decoder', function () {
             0x60, 0x82, 0x01, 0x99, 0x8d, 0x29, 0x02, 0xa6,
             0x00, 0x7e, 0xbf, 0x0f, 0xf1 ];
 
-        let done = await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
+        await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -101,7 +88,6 @@ describe('Tight Decoder', function () {
             0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255, 0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255
         ]);
 
-        expect(done).to.be.true;
         expect(display).to.have.displayed(targetData);
     });
 
@@ -114,7 +100,7 @@ describe('Tight Decoder', function () {
             // Pixels
             0x30, 0x30, 0xc0, 0xc0 ];
 
-        let done = await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
+        await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -123,7 +109,6 @@ describe('Tight Decoder', function () {
             0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255, 0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255
         ]);
 
-        expect(done).to.be.true;
         expect(display).to.have.displayed(targetData);
     });
 
@@ -140,7 +125,7 @@ describe('Tight Decoder', function () {
             0x78, 0x9c, 0x33, 0x30, 0x38, 0x70, 0xc0, 0x00,
             0x8a, 0x01, 0x21, 0x3c, 0x05, 0xa1 ];
 
-        let done = await testDecodeRect(decoder, 0, 0, 4, 12, data, display, 24);
+        await testDecodeRect(decoder, 0, 0, 4, 12, data, display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -157,12 +142,10 @@ describe('Tight Decoder', function () {
             0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255, 0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255
         ]);
 
-        expect(done).to.be.true;
         expect(display).to.have.displayed(targetData);
     });
 
     it('should handle uncompressed palette rects', async function () {
-        let done;
         let data1 = [
             // Control bytes
             0x40, 0x01,
@@ -178,10 +161,8 @@ describe('Tight Decoder', function () {
             // Pixels
             0x01, 0x01, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00 ];
 
-        done = await testDecodeRect(decoder, 0, 0, 4, 2, data1, display, 24);
-        expect(done).to.be.true;
-        done = await testDecodeRect(decoder, 0, 2, 4, 2, data2, display, 24);
-        expect(done).to.be.true;
+        await testDecodeRect(decoder, 0, 0, 4, 2, data1, display, 24);
+        await testDecodeRect(decoder, 0, 2, 4, 2, data2, display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -205,7 +186,7 @@ describe('Tight Decoder', function () {
             0x62, 0x08, 0xc9, 0xc0, 0x00, 0x00, 0x00, 0x54,
             0x00, 0x09 ];
 
-        let done = await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
+        await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -214,7 +195,6 @@ describe('Tight Decoder', function () {
             0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255, 0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255
         ]);
 
-        expect(done).to.be.true;
         expect(display).to.have.displayed(targetData);
     });
 
@@ -231,7 +211,7 @@ describe('Tight Decoder', function () {
         display.fillRect(2, 0, 2, 2, [ 0x00, 0xff, 0x00 ]);
         display.fillRect(0, 2, 2, 2, [ 0x00, 0xff, 0x00 ]);
 
-        let done = await testDecodeRect(decoder, 1, 2, 0, 0, [ 0x00 ], display, 24);
+        await testDecodeRect(decoder, 1, 2, 0, 0, [ 0x00 ], display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -240,7 +220,6 @@ describe('Tight Decoder', function () {
             0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255, 0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255
         ]);
 
-        expect(done).to.be.true;
         expect(display).to.have.displayed(targetData);
     });
 
@@ -249,11 +228,11 @@ describe('Tight Decoder', function () {
         display.fillRect(2, 0, 2, 2, [ 0x00, 0xff, 0x00 ]);
         display.fillRect(0, 2, 2, 2, [ 0x00, 0xff, 0x00 ]);
 
-        let done = await testDecodeRect(decoder, 1, 2, 0, 0,
-                                        [ 0x40, 0x01, 0x01,
-                                          0xff, 0xff, 0xff,
-                                          0xff, 0xff, 0xff ],
-                                        display, 24);
+        await testDecodeRect(decoder, 1, 2, 0, 0,
+                             [ 0x40, 0x01, 0x01,
+                               0xff, 0xff, 0xff,
+                               0xff, 0xff, 0xff ],
+                             display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -262,7 +241,6 @@ describe('Tight Decoder', function () {
             0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255, 0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255
         ]);
 
-        expect(done).to.be.true;
         expect(display).to.have.displayed(targetData);
     });
 
@@ -271,9 +249,9 @@ describe('Tight Decoder', function () {
         display.fillRect(2, 0, 2, 2, [ 0x00, 0xff, 0x00 ]);
         display.fillRect(0, 2, 2, 2, [ 0x00, 0xff, 0x00 ]);
 
-        let done = await testDecodeRect(decoder, 1, 2, 0, 0,
-                                        [ 0x80, 0xff, 0xff, 0xff ],
-                                        display, 24);
+        await testDecodeRect(decoder, 1, 2, 0, 0,
+                             [ 0x80, 0xff, 0xff, 0xff ],
+                             display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -282,7 +260,6 @@ describe('Tight Decoder', function () {
             0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255, 0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255
         ]);
 
-        expect(done).to.be.true;
         expect(display).to.have.displayed(targetData);
     });
 
@@ -384,8 +361,7 @@ describe('Tight Decoder', function () {
             0x3f, 0xeb, 0xff, 0x00, 0xff, 0xd9,
         ];
 
-        let decodeDone = await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
-        expect(decodeDone).to.be.true;
+        await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
 
         let targetData = new Uint8Array([
             0xff, 0x00, 0x00, 255, 0xff, 0x00, 0x00, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,

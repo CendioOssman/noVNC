@@ -21,9 +21,6 @@ export default class JPEGDecoder {
         // A rect of JPEG encodings is simply a JPEG file
         while (true) {
             let segment = await this._readSegment(sock);
-            if (segment === null) {
-                return false;
-            }
             this._segments.push(segment);
             // End of image?
             if (segment[1] === 0xD9) {
@@ -82,15 +79,9 @@ export default class JPEGDecoder {
         }
 
         this._segments = [];
-
-        return true;
     }
 
     async _readSegment(sock) {
-        if (sock.rQwait("JPEG", 2)) {
-            return null;
-        }
-
         let marker = await sock.rQshift8();
         if (marker != 0xFF) {
             throw new Error("Illegal JPEG marker received (byte: " +
@@ -102,18 +93,10 @@ export default class JPEGDecoder {
             return new Uint8Array([marker, type]);
         }
 
-        if (sock.rQwait("JPEG", 2, 2)) {
-            return null;
-        }
-
         let length = await sock.rQshift16();
         if (length < 2) {
             throw new Error("Illegal JPEG length received (length: " +
                                length + ")");
-        }
-
-        if (sock.rQwait("JPEG", length-2, 4)) {
-            return null;
         }
 
         let extra = 0;
@@ -121,9 +104,6 @@ export default class JPEGDecoder {
             // start of scan
             extra += 2;
             while (true) {
-                if (sock.rQwait("JPEG", length-2+extra, 4)) {
-                    return null;
-                }
                 let data = await sock.rQpeekBytes(length-2+extra, false);
                 if (data.at(-2) === 0xFF && data.at(-1) !== 0x00 &&
                     !(data.at(-1) >= 0xD0 && data.at(-1) <= 0xD7)) {

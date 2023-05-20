@@ -1323,8 +1323,6 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     const challenge = [];
                     for (let i = 0; i < 16; i++) { challenge[i] = i; }
                     await sendData(client, challenge);
-                    clock.tick();
-                    await flushPromises();
 
                     const desPass = RFB.genDES('passwd', challenge);
                     expect(client._sock).to.have.sent(new Uint8Array(desPass));
@@ -1339,8 +1337,6 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     const challenge = [];
                     for (let i = 0; i < 16; i++) { challenge[i] = i; }
                     await sendData(client, challenge);
-                    clock.tick();
-                    await flushPromises();
 
                     expect(client._rfbInitState).to.equal('SecurityResult');
                 });
@@ -1773,7 +1769,6 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     expect(client._sock).to.have.sent(new Uint8Array(expected));
 
                     client.sendCredentials({ "password": "123456" });
-                    clock.tick();
 
                     // FIXME: We don't have a good way to know when
                     //        the async stuff is done, so we hook in
@@ -1852,17 +1847,15 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     await sendData(client, data);
 
                     // FIXME: We don't have a good way to know when the
-                    //        async stuff is done, so we hook in to this
-                    //        internal function that is called at the
-                    //        end
+                    //        async stuff is done, so we hook in to the
+                    //        websocket that is called at the end
                     await new Promise((resolve, reject) => {
-                        sinon.stub(client, "_resumeAuthentication")
-                            .callsFake(() => {
-                                RFB.prototype._resumeAuthentication.call(client);
+                        sinon.stub(client._sock._websocket, "send")
+                            .callsFake((data) => {
+                                FakeWebSocket.prototype.send.call(client._sock._websocket, data);
                                 resolve();
                             });
                     });
-                    clock.tick();
 
                     expect(client._rfbInitState).to.equal('SecurityResult');
 
@@ -1960,8 +1953,6 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     await sendData(client, g);
                     await sendData(client, p);
                     await sendData(client, A);
-                    clock.tick();
-                    await flushPromises();
 
                     expect(client._sock).to.have.sent(expected);
                     expect(client._rfbInitState).to.equal('SecurityResult');
@@ -1977,7 +1968,6 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     });
                     sinon.spy(client, "_negotiateStdVNCAuth");
                     await sendSecurity(22, client);
-                    clock.tick();
                     expect(client._negotiateStdVNCAuth).to.have.been.calledOnce;
                 });
 
@@ -2008,8 +1998,6 @@ describe('Remote Frame Buffer Protocol Client', function () {
                                                  password: 'password' });
                     });
                     await sendSecurity(22, client);
-                    clock.tick();
-                    await flushPromises();
 
                     const expected = [22, 4, 6]; // auth selection, len user, len target
                     for (let i = 0; i < 10; i++) { expected[i+3] = 'usertarget'.charCodeAt(i); }
@@ -2209,7 +2197,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
                     await promise;
                     client.sendCredentials({ username: 'username', password: 'password' });
-                    clock.tick();
+                    await flushPromises();
 
                     const expectedResponse = [];
                     push32(expectedResponse, 8);
@@ -2229,7 +2217,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
                     await promise;
                     client.sendCredentials({ username: 'username', password: '' });
-                    clock.tick();
+                    await flushPromises();
 
                     const expectedResponse = [];
                     push32(expectedResponse, 8);
@@ -2249,7 +2237,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
                     await promise;
                     client.sendCredentials({ username: 'a'.repeat(300), password: 'b'.repeat(300) });
-                    clock.tick();
+                    await flushPromises();
 
                     const expectedResponse = [];
                     push32(expectedResponse, 300);
@@ -2540,24 +2528,6 @@ describe('Remote Frame Buffer Protocol Client', function () {
             it('should not send an update request if we need more data', async function () {
                 await sendData(client, [0]);
                 expect(client._sock).to.have.sent(new Uint8Array([]));
-            });
-
-            it('should resume receiving an update if we previously did not have enough data', async function () {
-                let esock = new Websock();
-                let ews = new FakeWebSocket();
-                ews._open();
-                esock.attach(ews);
-                RFB.messages.fbUpdateRequest(esock, true, 0, 0, 640, 20);
-                let expected = ews._getSentData();
-
-                // just enough to set FBU.rects
-                await sendData(client, [0, 0, 0, 3]);
-                expect(client._sock._websocket._getSentData()).to.have.length(0);
-
-                client._framebufferUpdate = function () { this._sock.rQskipBytes(1); return true; };  // we magically have enough data
-                // 247 should *not* be used as the message type here
-                await sendData(client, [247]);
-                expect(client._sock).to.have.sent(expected);
             });
 
             it('should not send a request in continuous updates mode', async function () {
@@ -2851,36 +2821,6 @@ describe('Remote Frame Buffer Protocol Client', function () {
                                             encoding: 0x574d5664}],
                                          [rect], client);
                         expect(client._FBU.rects).to.equal(0);
-                    });
-
-                    it('should handle insufficient cursor pixel data', async function () {
-
-                        // Specified 14x23 pixels for the cursor,
-                        // but only send 2x2 pixels worth of data
-                        let w = 14;
-                        let h = 23;
-                        let data = [0x00, 0x00, 0xff, 0,
-                                    0x00, 0xff, 0x00, 0];
-                        let rect = [];
-
-                        push8(rect, 0);
-                        push8(rect, 0);
-
-                        //AND-mask
-                        for (let i = 0; i < data.length; i++) {
-                            push8(rect, data[i]);
-                        }
-                        //XOR-mask
-                        for (let i = 0; i < data.length; i++) {
-                            push8(rect, data[i]);
-                        }
-
-                        await sendFbuMsg([{ x: 0, y: 0, width: w, height: h,
-                                            encoding: 0x574d5664}],
-                                         [rect], client);
-
-                        // expect one FBU to remain unhandled
-                        expect(client._FBU.rects).to.equal(1);
                     });
 
                     it('should update the cursor when type is classic', async function () {
@@ -4476,34 +4416,6 @@ describe('Remote Frame Buffer Protocol Client', function () {
         });
 
         describe('WebSocket Events', function () {
-            // message events
-            it('should do nothing if we receive an empty message and have nothing in the queue', async function () {
-                sinon.spy(client, "_normalMsg");
-                await sendData(client, []);
-                expect(client._normalMsg).to.not.have.been.called;
-            });
-
-            it('should handle a message in the connected state as a normal message', async function () {
-                sinon.spy(client, "_normalMsg");
-                await sendData(client, [1, 2, 3]);
-                expect(client._normalMsg).to.have.been.called;
-            });
-
-            it('should handle a message in any non-disconnected/failed state like an init message', async function () {
-                client._rfbConnectionState = 'connecting';
-                client._rfbInitState = 'ProtocolVersion';
-                sinon.spy(client, "_initMsg");
-                await sendData(client, [1, 2, 3]);
-                expect(client._initMsg).to.have.been.called;
-            });
-
-            it('should process all normal messages directly', async function () {
-                const spy = sinon.spy();
-                client.addEventListener("bell", spy);
-                await sendData(client, [0x02, 0x02]);
-                expect(spy).to.have.been.calledTwice;
-            });
-
             // open events
             it('should update the state to ProtocolVersion on open (if the state is "connecting")', function () {
                 client = new RFB(document.createElement('div'), 'wss://host:8675');
