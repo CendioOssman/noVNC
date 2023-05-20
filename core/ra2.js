@@ -139,8 +139,8 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
         this._hasStarted = true;
         // 1: Receive server public key
         await this._waitSockAsync(4);
-        const serverKeyLengthBuffer = this._sock.rQpeekBytes(4);
-        const serverKeyLength = this._sock.rQshift32();
+        const serverKeyLengthBuffer = await this._sock.rQpeekBytes(4);
+        const serverKeyLength = await this._sock.rQshift32();
         if (serverKeyLength < 1024) {
             throw new Error("RA2: server public key is too short: " + serverKeyLength);
         } else if (serverKeyLength > 8192) {
@@ -148,8 +148,8 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
         }
         const serverKeyBytes = Math.ceil(serverKeyLength / 8);
         await this._waitSockAsync(serverKeyBytes * 2);
-        const serverN = this._sock.rQshiftBytes(serverKeyBytes);
-        const serverE = this._sock.rQshiftBytes(serverKeyBytes);
+        const serverN = await this._sock.rQshiftBytes(serverKeyBytes);
+        const serverE = await this._sock.rQshiftBytes(serverKeyBytes);
         const serverRSACipher = await legacyCrypto.importKey(
             "raw", { n: serverN, e: serverE }, { name: "RSA-PKCS1-v1_5" }, false, ["encrypt"]);
         const serverPublickey = new Uint8Array(4 + serverKeyBytes * 2);
@@ -199,10 +199,10 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
 
         // 4: Receive server random
         await this._waitSockAsync(2);
-        if (this._sock.rQshift16() !== clientKeyBytes) {
+        if (await this._sock.rQshift16() !== clientKeyBytes) {
             throw new Error("RA2: wrong encrypted message length");
         }
-        const serverEncryptedRandom = this._sock.rQshiftBytes(clientKeyBytes);
+        const serverEncryptedRandom = await this._sock.rQshiftBytes(clientKeyBytes);
         const serverRandom = await legacyCrypto.decrypt(
             { name: "RSA-PKCS1-v1_5" }, clientRSACipher, serverEncryptedRandom);
         if (serverRandom === null || serverRandom.length !== 16) {
@@ -239,11 +239,11 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
         this._sock.sQpushBytes(await clientCipher.makeMessage(clientHash));
         this._sock.flush();
         await this._waitSockAsync(2 + 20 + 16);
-        if (this._sock.rQshift16() !== 20) {
+        if (await this._sock.rQshift16() !== 20) {
             throw new Error("RA2: wrong server hash");
         }
         const serverHashReceived = await serverCipher.receiveMessage(
-            20, this._sock.rQshiftBytes(20 + 16));
+            20, await this._sock.rQshiftBytes(20 + 16));
         if (serverHashReceived === null) {
             throw new Error("RA2: failed to authenticate the message");
         }
@@ -255,11 +255,11 @@ export default class RSAAESAuthenticationState extends EventTargetMixin {
 
         // 7: Receive subtype
         await this._waitSockAsync(2 + 1 + 16);
-        if (this._sock.rQshift16() !== 1) {
+        if (await this._sock.rQshift16() !== 1) {
             throw new Error("RA2: wrong subtype");
         }
         let subtype = (await serverCipher.receiveMessage(
-            1, this._sock.rQshiftBytes(1 + 16)));
+            1, await this._sock.rQshiftBytes(1 + 16)));
         if (subtype === null) {
             throw new Error("RA2: failed to authenticate the message");
         }

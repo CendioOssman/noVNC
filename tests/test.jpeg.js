@@ -7,24 +7,15 @@ import JPEGDecoder from '../core/decoders/jpeg.js';
 
 import FakeWebSocket from './fake.websocket.js';
 
-function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
+async function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
     let sock;
-    let done = false;
+    let done;
 
     sock = new Websock;
     sock.open("ws://example.com");
 
-    sock.on('message', () => {
-        done = decoder.decodeRect(x, y, width, height, sock, display, depth);
-    });
-
-    // Empty messages are filtered at multiple layers, so we need to
-    // do a direct call
-    if (data.length === 0) {
-        done = decoder.decodeRect(x, y, width, height, sock, display, depth);
-    } else {
-        sock._websocket._receiveData(new Uint8Array(data));
-    }
+    sock._websocket._receiveData(new Uint8Array(data));
+    done = await decoder.decodeRect(x, y, width, height, sock, display, depth);
 
     display.flip();
 
@@ -134,7 +125,7 @@ describe('JPEG Decoder', function () {
             0xff, 0xd9,
         ];
 
-        let decodeDone = testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
+        let decodeDone = await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
         expect(decodeDone).to.be.true;
 
         let targetData = new Uint8Array([
@@ -247,7 +238,7 @@ describe('JPEG Decoder', function () {
 
         let decodeDone;
 
-        decodeDone = testDecodeRect(decoder, 0, 0, 4, 4, data1, display, 24);
+        decodeDone = await testDecodeRect(decoder, 0, 0, 4, 4, data1, display, 24);
         expect(decodeDone).to.be.true;
 
         display.fillRect(0, 0, 4, 4, [128, 128, 128, 255]);
@@ -269,7 +260,7 @@ describe('JPEG Decoder', function () {
             0xcf, 0xff, 0x00, 0x0b, 0xab, 0x1f, 0xff, 0xd9,
         ];
 
-        decodeDone = testDecodeRect(decoder, 0, 0, 4, 4, data2, display, 24);
+        decodeDone = await testDecodeRect(decoder, 0, 0, 4, 4, data2, display, 24);
         expect(decodeDone).to.be.true;
 
         let targetData = new Uint8Array([

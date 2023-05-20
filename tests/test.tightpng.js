@@ -7,24 +7,15 @@ import TightPngDecoder from '../core/decoders/tightpng.js';
 
 import FakeWebSocket from './fake.websocket.js';
 
-function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
+async function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
     let sock;
-    let done = false;
+    let done;
 
     sock = new Websock;
     sock.open("ws://example.com");
 
-    sock.on('message', () => {
-        done = decoder.decodeRect(x, y, width, height, sock, display, depth);
-    });
-
-    // Empty messages are filtered at multiple layers, so we need to
-    // do a direct call
-    if (data.length === 0) {
-        done = decoder.decodeRect(x, y, width, height, sock, display, depth);
-    } else {
-        sock._websocket._receiveData(new Uint8Array(data));
-    }
+    sock._websocket._receiveData(new Uint8Array(data));
+    done = await decoder.decodeRect(x, y, width, height, sock, display, depth);
 
     display.flip();
 
@@ -122,7 +113,7 @@ describe('TightPng Decoder', function () {
             0xae, 0x42, 0x60, 0x82,
         ];
 
-        let decodeDone = testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
+        let decodeDone = await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
         expect(decodeDone).to.be.true;
 
         let targetData = new Uint8Array([

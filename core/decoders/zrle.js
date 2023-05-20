@@ -21,18 +21,18 @@ export default class ZRLEDecoder {
         this._tileBuffer = new Uint8Array(ZRLE_TILE_WIDTH * ZRLE_TILE_HEIGHT * 4);
     }
 
-    decodeRect(x, y, width, height, sock, display, depth) {
+    async decodeRect(x, y, width, height, sock, display, depth) {
         if (this._length === 0) {
             if (sock.rQwait("ZLib data length", 4)) {
                 return false;
             }
-            this._length = sock.rQshift32();
+            this._length = await sock.rQshift32();
         }
         if (sock.rQwait("Zlib data", this._length)) {
             return false;
         }
 
-        const data = sock.rQshiftBytes(this._length, false);
+        const data = await sock.rQshiftBytes(this._length, false);
 
         this._inflator.setInput(data);
 

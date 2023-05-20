@@ -7,24 +7,15 @@ import ZRLEDecoder from '../core/decoders/zrle.js';
 
 import FakeWebSocket from './fake.websocket.js';
 
-function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
+async function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
     let sock;
-    let done = false;
+    let done;
 
     sock = new Websock;
     sock.open("ws://example.com");
 
-    sock.on('message', () => {
-        done = decoder.decodeRect(x, y, width, height, sock, display, depth);
-    });
-
-    // Empty messages are filtered at multiple layers, so we need to
-    // do a direct call
-    if (data.length === 0) {
-        done = decoder.decodeRect(x, y, width, height, sock, display, depth);
-    } else {
-        sock._websocket._receiveData(new Uint8Array(data));
-    }
+    sock._websocket._receiveData(new Uint8Array(data));
+    done = await decoder.decodeRect(x, y, width, height, sock, display, depth);
 
     display.flip();
 
@@ -44,12 +35,14 @@ describe('ZRLE Decoder', function () {
         display.resize(4, 4);
     });
 
-    it('should handle the Raw subencoding', function () {
-        let done = testDecodeRect(decoder, 0, 0, 4, 4,
-                                  [0x00, 0x00, 0x00, 0x0e, 0x78, 0x5e,
-                                   0x62, 0x60, 0x60, 0xf8, 0x4f, 0x12,
-                                   0x02, 0x00, 0x00, 0x00, 0xff, 0xff],
-                                  display, 24);
+    it('should handle the Raw subencoding', async function () {
+        let done = await testDecodeRect(decoder, 0, 0, 4, 4,
+                                        [0x00, 0x00, 0x00, 0x0e,
+                                         0x78, 0x5e, 0x62, 0x60,
+                                         0x60, 0xf8, 0x4f, 0x12,
+                                         0x02, 0x00, 0x00, 0x00,
+                                         0xff, 0xff],
+                                        display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff,
@@ -62,12 +55,13 @@ describe('ZRLE Decoder', function () {
         expect(display).to.have.displayed(targetData);
     });
 
-    it('should handle the Solid subencoding', function () {
-        let done = testDecodeRect(decoder, 0, 0, 4, 4,
-                                  [0x00, 0x00, 0x00, 0x0c, 0x78, 0x5e,
-                                   0x62, 0x64, 0x60, 0xf8, 0x0f, 0x00,
-                                   0x00, 0x00, 0xff, 0xff],
-                                  display, 24);
+    it('should handle the Solid subencoding', async function () {
+        let done = await testDecodeRect(decoder, 0, 0, 4, 4,
+                                        [0x00, 0x00, 0x00, 0x0c,
+                                         0x78, 0x5e, 0x62, 0x64,
+                                         0x60, 0xf8, 0x0f, 0x00,
+                                         0x00, 0x00, 0xff, 0xff],
+                                        display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff,
@@ -81,13 +75,15 @@ describe('ZRLE Decoder', function () {
     });
 
 
-    it('should handle the Palette Tile subencoding', function () {
-        let done = testDecodeRect(decoder, 0, 0, 4, 4,
-                                  [0x00, 0x00, 0x00, 0x12, 0x78, 0x5E,
-                                   0x62, 0x62, 0x60,  248, 0xff, 0x9F,
-                                   0x01, 0x08, 0x3E, 0x7C, 0x00, 0x00,
-                                   0x00, 0x00, 0xff, 0xff],
-                                  display, 24);
+    it('should handle the Palette Tile subencoding', async function () {
+        let done = await testDecodeRect(decoder, 0, 0, 4, 4,
+                                        [0x00, 0x00, 0x00, 0x12,
+                                         0x78, 0x5E, 0x62, 0x62,
+                                         0x60,  248, 0xff, 0x9F,
+                                         0x01, 0x08, 0x3E, 0x7C,
+                                         0x00, 0x00, 0x00, 0x00,
+                                         0xff, 0xff],
+                                        display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff,
@@ -100,12 +96,14 @@ describe('ZRLE Decoder', function () {
         expect(display).to.have.displayed(targetData);
     });
 
-    it('should handle the RLE Tile subencoding', function () {
-        let done = testDecodeRect(decoder, 0, 0, 4, 4,
-                                  [0x00, 0x00, 0x00, 0x0d, 0x78, 0x5e,
-                                   0x6a, 0x60, 0x60, 0xf8, 0x2f, 0x00,
-                                   0x00, 0x00, 0x00, 0xff, 0xff],
-                                  display, 24);
+    it('should handle the RLE Tile subencoding', async function () {
+        let done = await testDecodeRect(decoder, 0, 0, 4, 4,
+                                        [0x00, 0x00, 0x00, 0x0d,
+                                         0x78, 0x5e, 0x6a, 0x60,
+                                         0x60, 0xf8, 0x2f, 0x00,
+                                         0x00, 0x00, 0x00, 0xff,
+                                         0xff],
+                                        display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff,
@@ -118,13 +116,15 @@ describe('ZRLE Decoder', function () {
         expect(display).to.have.displayed(targetData);
     });
 
-    it('should handle the RLE Palette Tile subencoding', function () {
-        let done = testDecodeRect(decoder, 0, 0, 4, 4,
-                                  [0x00, 0x00, 0x00, 0x11, 0x78, 0x5e,
-                                   0x6a, 0x62, 0x60, 0xf8, 0xff, 0x9f,
-                                   0x81, 0xa1, 0x81, 0x1f, 0x00, 0x00,
-                                   0x00, 0xff, 0xff],
-                                  display, 24);
+    it('should handle the RLE Palette Tile subencoding', async function () {
+        let done = await testDecodeRect(decoder, 0, 0, 4, 4,
+                                        [0x00, 0x00, 0x00, 0x11,
+                                         0x78, 0x5e, 0x6a, 0x62,
+                                         0x60, 0xf8, 0xff, 0x9f,
+                                         0x81, 0xa1, 0x81, 0x1f,
+                                         0x00, 0x00, 0x00, 0xff,
+                                         0xff],
+                                        display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0xff, 0xff,
@@ -137,8 +137,16 @@ describe('ZRLE Decoder', function () {
         expect(display).to.have.displayed(targetData);
     });
 
-    it('should fail on an invalid subencoding', function () {
-        let data = [0x00, 0x00, 0x00, 0x0c, 0x78, 0x5e, 0x6a, 0x64, 0x60, 0xf8, 0x0f, 0x00, 0x00, 0x00, 0xff, 0xff];
-        expect(() => testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24)).to.throw();
+    it('should fail on an invalid subencoding', async function () {
+        try {
+            await testDecodeRect(decoder, 0, 0, 4, 4,
+                                 [0x00, 0x00, 0x00, 0x0c, 0x78, 0x5e,
+                                  0x6a, 0x64, 0x60, 0xf8, 0x0f, 0x00,
+                                  0x00, 0x00, 0xff, 0xff],
+                                 display, 24);
+            expect.fail();
+        } catch {
+            // We expect an error here
+        }
     });
 });

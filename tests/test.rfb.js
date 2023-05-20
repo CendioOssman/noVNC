@@ -70,7 +70,7 @@ function deflateWithSize(data) {
 }
 
 describe('Remote Frame Buffer Protocol Client', function () {
-    let clock;
+    let origSetTimeout, clock;
     let raf;
     let fakeResizeObserver = null;
     const realObserver = window.ResizeObserver;
@@ -92,6 +92,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
     after(FakeWebSocket.restore);
 
     before(function () {
+        origSetTimeout = setTimeout;
         this.clock = clock = sinon.useFakeTimers(Date.now());
         // sinon doesn't support this yet
         raf = window.requestAnimationFrame;
@@ -167,8 +168,17 @@ describe('Remote Frame Buffer Protocol Client', function () {
         return makeRFB(url, options, 'connected');
     }
 
-    function sendData(rfb, data) {
+    async function flushPromises(p) {
+        // Promises execute on the microtask queue, which is emptied
+        // before anything on the task queue is allowed to execute
+        await new Promise((resolve, reject) => {
+            origSetTimeout(resolve);
+        });
+    }
+
+    async function sendData(rfb, data) {
         rfb._sock._websocket._receiveData(new Uint8Array(data));
+        await flushPromises();
     }
 
     describe('Connecting/Disconnecting', function () {
@@ -202,7 +212,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 expect(attach).to.have.been.calledOnceWithExactly(sock);
             });
 
-            it('should handle already open WebSocket/RTCDataChannel objects', function () {
+            it('should handle already open WebSocket/RTCDataChannel objects', async function () {
                 let sock = new FakeWebSocket('ws://HOST:8675/PATH', []);
                 sock._open();
                 const client = new RFB(document.createElement('div'), sock);
@@ -211,7 +221,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 expect(open).to.not.have.been.called;
                 expect(attach).to.have.been.calledOnceWithExactly(sock);
                 // Check if it is ready for some data
-                sendData(client, ['R', 'F', 'B', '0', '0', '3', '0', '0', '8']);
+                await sendData(client, ['R', 'F', 'B', '0', '0', '3', '0', '0', '8']);
                 expect(callback).to.not.have.been.called;
             });
 
@@ -466,7 +476,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                                                                                new Uint8Array([63]));
                 });
 
-                it('should send an notify if extended clipboard is supported by server', function () {
+                it('should send an notify if extended clipboard is supported by server', async function () {
                     // Send our capabilities
                     let data = [3, 0, 0, 0];
                     const flags = [0x1F, 0x00, 0x00, 0x01];
@@ -475,7 +485,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     push32(data, toUnsigned32bit(-8));
                     data = data.concat(flags);
                     data = data.concat(fileSizes);
-                    sendData(client, data);
+                    await sendData(client, data);
 
                     client.clipboardPasteFrom('extended test');
                     expect(RFB.messages.extendedClipboardNotify).to.have.been.calledOnce;
@@ -563,7 +573,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
             expect(client._display.viewportChangeSize).to.have.been.calledWith(40, 50);
         });
 
-        it('should update the viewport when the remote session resizes', function () {
+        it('should update the viewport when the remote session resizes', async function () {
             // Simple ExtendedDesktopSize FBU message
             const incoming = [ 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
                                0x00, 0xff, 0x00, 0xff, 0xff, 0xff, 0xfe, 0xcc,
@@ -573,7 +583,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
             sinon.spy(client._display, "viewportChangeSize");
 
-            sendData(client, incoming);
+            await sendData(client, incoming);
             // The resize will cause scrollbars on the container, this causes a
             // resize observation in the browsers
             fakeResizeObserver.fire();
@@ -787,7 +797,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
             expect(client._display.autoscale).to.have.been.calledWith(40, 50);
         });
 
-        it('should update the scaling when the remote session resizes', function () {
+        it('should update the scaling when the remote session resizes', async function () {
             // Simple ExtendedDesktopSize FBU message
             const incoming = [ 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
                                0x00, 0xff, 0x00, 0xff, 0xff, 0xff, 0xfe, 0xcc,
@@ -797,7 +807,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
             sinon.spy(client._display, "autoscale");
 
-            sendData(client, incoming);
+            await sendData(client, incoming);
             // The resize will cause scrollbars on the container, this causes a
             // resize observation in the browsers
             fakeResizeObserver.fire();
@@ -823,7 +833,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
     describe('Remote resize', function () {
         let client;
-        beforeEach(function () {
+        beforeEach(async function () {
             client = makeConnectedRFB();
             client.resizeSession = true;
             container.style.width = '70px';
@@ -849,7 +859,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                                0x00, 0x04,  // screen height = 4
                                0x12, 0x34,
                                0x56, 0x78]; // screen flags
-            sendData(client, incoming);
+            await sendData(client, incoming);
 
             sinon.spy(RFB.messages, "setDesktopSize");
         });
@@ -865,7 +875,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
             expect(RFB.messages.setDesktopSize).to.have.been.calledOnce;
         });
 
-        it('should request a resize when initially connecting', function () {
+        it('should request a resize when initially connecting', async function () {
             // Create a new object that hasn't yet seen a
             // ExtendedDesktopSize rect
             client = makeConnectedRFB();
@@ -897,7 +907,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
             // First message should trigger a resize
 
-            sendData(client, incoming);
+            await sendData(client, incoming);
 
             // It should match the current size of the container,
             // not the reported size from the server
@@ -909,7 +919,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
             // Second message should not trigger a resize
 
-            sendData(client, incoming);
+            await sendData(client, incoming);
 
             expect(RFB.messages.setDesktopSize).to.not.have.been.called;
         });
@@ -925,7 +935,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 sinon.match.object, 40, 50, 0x7890abcd, 0x12345678);
         });
 
-        it('should not request the same size twice', function () {
+        it('should not request the same size twice', async function () {
             container.style.width = '40px';
             container.style.height = '50px';
             fakeResizeObserver.fire();
@@ -942,7 +952,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                                0x00, 0x00, 0x00, 0x00, 0x00, 0x28, 0x00, 0x32,
                                0x00, 0x00, 0x00, 0x00];
 
-            sendData(client, incoming);
+            await sendData(client, incoming);
             clock.tick(1000);
 
             RFB.messages.setDesktopSize.resetHistory();
@@ -1009,7 +1019,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
             expect(RFB.messages.setDesktopSize).to.not.have.been.called;
         });
 
-        it('should not try to override a server resize', function () {
+        it('should not try to override a server resize', async function () {
             // Simple ExtendedDesktopSize FBU message, new size: 100x100
             const incoming = [ 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
                                0x00, 0x64, 0x00, 0x64, 0xff, 0xff, 0xfe, 0xcc,
@@ -1021,7 +1031,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
             // since the framebuffer is 100x100 and the container is 70x80.
             // The usable space (clientWidth/clientHeight) will be even smaller
             // due to the scrollbars taking up space.
-            sendData(client, incoming);
+            await sendData(client, incoming);
             // The scrollbars cause the ResizeObserver to fire
             fakeResizeObserver.fire();
             clock.tick(1000);
@@ -1087,75 +1097,75 @@ describe('Remote Frame Buffer Protocol Client', function () {
             client = makeConnectingRFB();
         });
 
-        function sendVer(ver, client) {
+        async function sendVer(ver, client) {
             const arr = new Uint8Array(12);
             for (let i = 0; i < ver.length; i++) {
                 arr[i+4] = ver.charCodeAt(i);
             }
             arr[0] = 'R'; arr[1] = 'F'; arr[2] = 'B'; arr[3] = ' ';
             arr[11] = '\n';
-            sendData(client, arr);
+            await sendData(client, arr);
         }
 
-        function sendSecurity(type, cl) {
-            sendData(cl, [1, type]);
+        async function sendSecurity(type, cl) {
+            await sendData(cl, [1, type]);
         }
 
         describe('ProtocolVersion', function () {
             describe('version parsing', function () {
-                it('should interpret version 003.003 as version 3.3', function () {
-                    sendVer('003.003', client);
+                it('should interpret version 003.003 as version 3.3', async function () {
+                    await sendVer('003.003', client);
                     expect(client._rfbVersion).to.equal(3.3);
                 });
 
-                it('should interpret version 003.006 as version 3.3', function () {
-                    sendVer('003.006', client);
+                it('should interpret version 003.006 as version 3.3', async function () {
+                    await sendVer('003.006', client);
                     expect(client._rfbVersion).to.equal(3.3);
                 });
 
-                it('should interpret version 003.889 as version 3.8', function () {
-                    sendVer('003.889', client);
+                it('should interpret version 003.889 as version 3.8', async function () {
+                    await sendVer('003.889', client);
                     expect(client._rfbVersion).to.equal(3.8);
                 });
 
-                it('should interpret version 003.007 as version 3.7', function () {
-                    sendVer('003.007', client);
+                it('should interpret version 003.007 as version 3.7', async function () {
+                    await sendVer('003.007', client);
                     expect(client._rfbVersion).to.equal(3.7);
                 });
 
-                it('should interpret version 003.008 as version 3.8', function () {
-                    sendVer('003.008', client);
+                it('should interpret version 003.008 as version 3.8', async function () {
+                    await sendVer('003.008', client);
                     expect(client._rfbVersion).to.equal(3.8);
                 });
 
-                it('should interpret version 004.000 as version 3.8', function () {
-                    sendVer('004.000', client);
+                it('should interpret version 004.000 as version 3.8', async function () {
+                    await sendVer('004.000', client);
                     expect(client._rfbVersion).to.equal(3.8);
                 });
 
-                it('should interpret version 004.001 as version 3.8', function () {
-                    sendVer('004.001', client);
+                it('should interpret version 004.001 as version 3.8', async function () {
+                    await sendVer('004.001', client);
                     expect(client._rfbVersion).to.equal(3.8);
                 });
 
-                it('should interpret version 005.000 as version 3.8', function () {
-                    sendVer('005.000', client);
+                it('should interpret version 005.000 as version 3.8', async function () {
+                    await sendVer('005.000', client);
                     expect(client._rfbVersion).to.equal(3.8);
                 });
 
-                it('should fail on an invalid version', function () {
+                it('should fail on an invalid version', async function () {
                     let callback = sinon.spy();
                     client.addEventListener("disconnect", callback);
 
-                    sendVer('002.000', client);
+                    await sendVer('002.000', client);
 
                     expect(callback).to.have.been.calledOnce;
                     expect(callback.args[0][0].detail.clean).to.be.false;
                 });
             });
 
-            it('should send back the interpreted version', function () {
-                sendVer('004.000', client);
+            it('should send back the interpreted version', async function () {
+                await sendVer('004.000', client);
 
                 const expectedStr = 'RFB 003.008\n';
                 const expected = [];
@@ -1166,8 +1176,8 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 expect(client._sock).to.have.sent(new Uint8Array(expected));
             });
 
-            it('should transition to the Security state on successful negotiation', function () {
-                sendVer('003.008', client);
+            it('should transition to the Security state on successful negotiation', async function () {
+                await sendVer('003.008', client);
                 expect(client._rfbInitState).to.equal('Security');
             });
 
@@ -1176,8 +1186,8 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     client = makeConnectingRFB('wss://host:8675', { repeaterID: "12345" });
                 });
 
-                it('should interpret version 000.000 as a repeater', function () {
-                    sendVer('000.000', client);
+                it('should interpret version 000.000 as a repeater', async function () {
+                    await sendVer('000.000', client);
                     expect(client._rfbVersion).to.equal(0);
 
                     const sentData = client._sock._websocket._getSentData();
@@ -1185,60 +1195,60 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     expect(sentData).to.have.length(250);
                 });
 
-                it('should handle two step repeater negotiation', function () {
-                    sendVer('000.000', client);
-                    sendVer('003.008', client);
+                it('should handle two step repeater negotiation', async function () {
+                    await sendVer('000.000', client);
+                    await sendVer('003.008', client);
                     expect(client._rfbVersion).to.equal(3.8);
                 });
             });
         });
 
         describe('Security', function () {
-            beforeEach(function () {
-                sendVer('003.008\n', client);
+            beforeEach(async function () {
+                await sendVer('003.008\n', client);
                 client._sock._websocket._getSentData();
             });
 
-            it('should respect server preference order', function () {
+            it('should respect server preference order', async function () {
                 const authSchemes = [ 6, 79, 30, 188, 16, 6, 1 ];
-                sendData(client, authSchemes);
+                await sendData(client, authSchemes);
                 expect(client._sock).to.have.sent(new Uint8Array([30]));
             });
 
-            it('should fail if there are no supported schemes', function () {
+            it('should fail if there are no supported schemes', async function () {
                 let callback = sinon.spy();
                 client.addEventListener("disconnect", callback);
 
                 const authSchemes = [1, 32];
-                sendData(client, authSchemes);
+                await sendData(client, authSchemes);
 
                 expect(callback).to.have.been.calledOnce;
                 expect(callback.args[0][0].detail.clean).to.be.false;
             });
 
-            it('should fail with the appropriate message if no types are sent', function () {
+            it('should fail with the appropriate message if no types are sent', async function () {
                 const failureData = [0, 0, 0, 0, 6, 119, 104, 111, 111, 112, 115];
                 let callback = sinon.spy();
                 client.addEventListener("securityfailure", callback);
 
-                sendData(client, failureData);
+                await sendData(client, failureData);
 
                 expect(callback).to.have.been.calledOnce;
                 expect(callback.args[0][0].detail.status).to.equal(1);
                 expect(callback.args[0][0].detail.reason).to.equal("whoops");
             });
 
-            it('should transition to the Authentication state and continue on successful negotiation', function () {
+            it('should transition to the Authentication state and continue on successful negotiation', async function () {
                 const authSchemes = [1, 2];
                 sinon.spy(client, "_negotiateAuthentication");
-                sendData(client, authSchemes);
+                await sendData(client, authSchemes);
                 expect(client._rfbInitState).to.equal('Authentication');
                 expect(client._negotiateAuthentication).to.have.been.calledOnce;
             });
         });
 
         describe('Legacy Authentication', function () {
-            it('should fail on auth scheme 0 (pre 3.7) with the given message', function () {
+            it('should fail on auth scheme 0 (pre 3.7) with the given message', async function () {
                 const errMsg = "Whoopsies";
                 const data = [0, 0, 0, 0];
                 const errLen = errMsg.length;
@@ -1247,88 +1257,90 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     data.push(errMsg.charCodeAt(i));
                 }
 
-                sendVer('003.006\n', client);
+                await sendVer('003.006\n', client);
                 client._sock._websocket._getSentData();
                 let callback = sinon.spy();
                 client.addEventListener("securityfailure", callback);
 
-                sendData(client, data);
+                await sendData(client, data);
 
                 expect(callback).to.have.been.calledOnce;
                 expect(callback.args[0][0].detail.status).to.equal(1);
                 expect(callback.args[0][0].detail.reason).to.equal("Whoopsies");
             });
 
-            it('should transition straight to ServerInitialisation on "no auth" for versions < 3.7', function () {
-                sendVer('003.006\n', client);
+            it('should transition straight to ServerInitialisation on "no auth" for versions < 3.7', async function () {
+                await sendVer('003.006\n', client);
                 client._sock._websocket._getSentData();
 
-                sendData(client, [0, 0, 0, 1]);
+                await sendData(client, [0, 0, 0, 1]);
                 expect(client._rfbInitState).to.equal('ServerInitialisation');
             });
         });
 
         describe('Authentication', function () {
-            beforeEach(function () {
-                sendVer('003.008\n', client);
+            beforeEach(async function () {
+                await sendVer('003.008\n', client);
                 client._sock._websocket._getSentData();
             });
 
-            it('should transition straight to SecurityResult on "no auth" (1)', function () {
-                sendSecurity(1, client);
+            it('should transition straight to SecurityResult on "no auth" (1)', async function () {
+                await sendSecurity(1, client);
                 expect(client._rfbInitState).to.equal('SecurityResult');
             });
 
-            it('should fail on an unknown auth scheme', function () {
+            it('should fail on an unknown auth scheme', async function () {
                 let callback = sinon.spy();
                 client.addEventListener("disconnect", callback);
 
-                sendSecurity(57, client);
+                await sendSecurity(57, client);
 
                 expect(callback).to.have.been.calledOnce;
                 expect(callback.args[0][0].detail.clean).to.be.false;
             });
 
             describe('VNC Authentication (type 2) Handler', function () {
-                it('should fire the credentialsrequired event if missing a password', function () {
+                it('should fire the credentialsrequired event if missing a password', async function () {
                     const spy = sinon.spy();
                     client.addEventListener("credentialsrequired", spy);
-                    sendSecurity(2, client);
+                    await sendSecurity(2, client);
 
                     const challenge = [];
                     for (let i = 0; i < 16; i++) { challenge[i] = i; }
-                    sendData(client, challenge);
+                    await sendData(client, challenge);
 
                     expect(spy).to.have.been.calledOnce;
                     expect(spy.args[0][0].detail.types).to.have.members(["password"]);
                 });
 
-                it('should encrypt the password with DES and then send it back', function () {
+                it('should encrypt the password with DES and then send it back', async function () {
                     client.addEventListener("credentialsrequired", () => {
                         client.sendCredentials({ password: 'passwd' });
                     });
-                    sendSecurity(2, client);
+                    await sendSecurity(2, client);
                     client._sock._websocket._getSentData(); // skip the choice of auth reply
 
                     const challenge = [];
                     for (let i = 0; i < 16; i++) { challenge[i] = i; }
-                    sendData(client, challenge);
+                    await sendData(client, challenge);
                     clock.tick();
+                    await flushPromises();
 
                     const desPass = RFB.genDES('passwd', challenge);
                     expect(client._sock).to.have.sent(new Uint8Array(desPass));
                 });
 
-                it('should transition to SecurityResult immediately after sending the password', function () {
+                it('should transition to SecurityResult immediately after sending the password', async function () {
                     client.addEventListener("credentialsrequired", () => {
                         client.sendCredentials({ password: 'passwd' });
                     });
-                    sendSecurity(2, client);
+                    await sendSecurity(2, client);
 
                     const challenge = [];
                     for (let i = 0; i < 16; i++) { challenge[i] = i; }
-                    sendData(client, challenge);
+                    await sendData(client, challenge);
                     clock.tick();
+                    await flushPromises();
 
                     expect(client._rfbInitState).to.equal('SecurityResult');
                 });
@@ -1452,8 +1464,8 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     window.crypto.subtle.generateKey.restore();
                 });
 
-                beforeEach(function () {
-                    sendSecurity(6, client);
+                beforeEach(async function () {
+                    await sendSecurity(6, client);
                     expect(client._sock).to.have.sent(new Uint8Array([6]));
                 });
 
@@ -1701,8 +1713,8 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         });
                     });
 
-                    sendData(client, serverPublicKey);
-                    sendData(client, serverRandom);
+                    await sendData(client, serverPublicKey);
+                    await sendData(client, serverRandom);
 
                     expect(await verification).to.deep.equal(new Uint8Array(serverPublicKey));
                 });
@@ -1719,14 +1731,14 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         });
                     });
 
-                    sendData(client, serverPublicKey);
-                    sendData(client, serverRandom);
+                    await sendData(client, serverPublicKey);
+                    await sendData(client, serverRandom);
 
                     await verification;
                     client.approveServer();
 
-                    sendData(client, serverHash);
-                    sendData(client, subType);
+                    await sendData(client, serverHash);
+                    await sendData(client, subType);
 
                     expect(await credentials).to.have.members(["password"]);
                 });
@@ -1743,14 +1755,14 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         });
                     });
 
-                    sendData(client, serverPublicKey);
-                    sendData(client, serverRandom);
+                    await sendData(client, serverPublicKey);
+                    await sendData(client, serverRandom);
 
                     await verification;
                     client.approveServer();
 
-                    sendData(client, serverHash);
-                    sendData(client, subType);
+                    await sendData(client, serverHash);
+                    await sendData(client, subType);
 
                     await credentials;
 
@@ -1793,20 +1805,20 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 after(() => {
                     window.crypto.getRandomValues.restore();
                 });
-                it('should fire the credentialsrequired event if all credentials are missing', function () {
+                it('should fire the credentialsrequired event if all credentials are missing', async function () {
                     const spy = sinon.spy();
                     client.addEventListener("credentialsrequired", spy);
-                    sendSecurity(30, client);
+                    await sendSecurity(30, client);
 
                     expect(spy).to.have.been.calledOnce;
                     expect(spy.args[0][0].detail.types).to.have.members(["username", "password"]);
                 });
 
-                it('should fire the credentialsrequired event if some credentials are missing', function () {
+                it('should fire the credentialsrequired event if some credentials are missing', async function () {
                     const spy = sinon.spy();
                     client.addEventListener("credentialsrequired", spy);
                     client.sendCredentials({ password: 'password'});
-                    sendSecurity(30, client);
+                    await sendSecurity(30, client);
 
                     expect(spy).to.have.been.calledOnce;
                     expect(spy.args[0][0].detail.types).to.have.members(["username", "password"]);
@@ -1817,7 +1829,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         client.sendCredentials({ username: 'user',
                                                  password: 'password' });
                     });
-                    sendSecurity(30, client);
+                    await sendSecurity(30, client);
 
                     expect(client._sock).to.have.sent([30]);
 
@@ -1837,7 +1849,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     data = data.concat(Array.from(prime));
                     data = data.concat(Array.from(serverPublicKey));
 
-                    sendData(client, data);
+                    await sendData(client, data);
 
                     // FIXME: We don't have a good way to know when the
                     //        async stuff is done, so we hook in to this
@@ -1932,12 +1944,12 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 after(() => {
                     window.crypto.getRandomValues.restore();
                 });
-                it('should send public value and encrypted credentials', function () {
+                it('should send public value and encrypted credentials', async function () {
                     client.addEventListener("credentialsrequired", () => {
                         client.sendCredentials({ username: 'username',
                                                  password: 'password123456' });
                     });
-                    sendSecurity(113, client);
+                    await sendSecurity(113, client);
 
                     expect(client._sock).to.have.sent([113]);
 
@@ -1945,10 +1957,11 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     const p = new Uint8Array([0, 0, 0, 0, 0x25, 0x18, 0x26, 0x17]);
                     const A = new Uint8Array([0, 0, 0, 0, 0x0e, 0x12, 0xd0, 0xf5]);
 
-                    sendData(client, g);
-                    sendData(client, p);
-                    sendData(client, A);
+                    await sendData(client, g);
+                    await sendData(client, p);
+                    await sendData(client, A);
                     clock.tick();
+                    await flushPromises();
 
                     expect(client._sock).to.have.sent(expected);
                     expect(client._rfbInitState).to.equal('SecurityResult');
@@ -1956,46 +1969,47 @@ describe('Remote Frame Buffer Protocol Client', function () {
             });
 
             describe('XVP Authentication (type 22) Handler', function () {
-                it('should fall through to standard VNC authentication upon completion', function () {
+                it('should fall through to standard VNC authentication upon completion', async function () {
                     client.addEventListener("credentialsrequired", () => {
                         client.sendCredentials({ username: 'user',
                                                  target: 'target',
                                                  password: 'password' });
                     });
                     sinon.spy(client, "_negotiateStdVNCAuth");
-                    sendSecurity(22, client);
+                    await sendSecurity(22, client);
                     clock.tick();
                     expect(client._negotiateStdVNCAuth).to.have.been.calledOnce;
                 });
 
-                it('should fire the credentialsrequired event if all credentials are missing', function () {
+                it('should fire the credentialsrequired event if all credentials are missing', async function () {
                     const spy = sinon.spy();
                     client.addEventListener("credentialsrequired", spy);
-                    sendSecurity(22, client);
+                    await sendSecurity(22, client);
 
                     expect(spy).to.have.been.calledOnce;
                     expect(spy.args[0][0].detail.types).to.have.members(["username", "password", "target"]);
                 });
 
-                it('should fire the credentialsrequired event if some credentials are missing', function () {
+                it('should fire the credentialsrequired event if some credentials are missing', async function () {
                     const spy = sinon.spy();
                     client.addEventListener("credentialsrequired", spy);
                     client.sendCredentials({ username: 'user',
                                              target: 'target' });
-                    sendSecurity(22, client);
+                    await sendSecurity(22, client);
 
                     expect(spy).to.have.been.calledOnce;
                     expect(spy.args[0][0].detail.types).to.have.members(["username", "password", "target"]);
                 });
 
-                it('should send user and target separately', function () {
+                it('should send user and target separately', async function () {
                     client.addEventListener("credentialsrequired", () => {
                         client.sendCredentials({ username: 'user',
                                                  target: 'target',
                                                  password: 'password' });
                     });
-                    sendSecurity(22, client);
+                    await sendSecurity(22, client);
                     clock.tick();
+                    await flushPromises();
 
                     const expected = [22, 4, 6]; // auth selection, len user, len target
                     for (let i = 0; i < 10; i++) { expected[i+3] = 'usertarget'.charCodeAt(i); }
@@ -2005,12 +2019,12 @@ describe('Remote Frame Buffer Protocol Client', function () {
             });
 
             describe('TightVNC Authentication (type 16) Handler', function () {
-                beforeEach(function () {
-                    sendSecurity(16, client);
+                beforeEach(async function () {
+                    await sendSecurity(16, client);
                     client._sock._websocket._getSentData();  // skip the security reply
                 });
 
-                function sendNumStrPairs(pairs, client) {
+                async function sendNumStrPairs(pairs, client) {
                     const data = [];
                     push32(data, pairs.length);
 
@@ -2024,67 +2038,67 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         }
                     }
 
-                    sendData(client, data);
+                    await sendData(client, data);
                 }
 
-                it('should skip tunnel negotiation if no tunnels are requested', function () {
-                    sendData(client, [0, 0, 0, 0]);
+                it('should skip tunnel negotiation if no tunnels are requested', async function () {
+                    await sendData(client, [0, 0, 0, 0]);
                     expect(client._rfbTightVNC).to.be.true;
                 });
 
-                it('should fail if no supported tunnels are listed', function () {
+                it('should fail if no supported tunnels are listed', async function () {
                     let callback = sinon.spy();
                     client.addEventListener("disconnect", callback);
 
-                    sendNumStrPairs([[123, 'OTHR', 'SOMETHNG']], client);
+                    await sendNumStrPairs([[123, 'OTHR', 'SOMETHNG']], client);
 
                     expect(callback).to.have.been.calledOnce;
                     expect(callback.args[0][0].detail.clean).to.be.false;
                 });
 
-                it('should choose the notunnel tunnel type', function () {
-                    sendNumStrPairs([[0, 'TGHT', 'NOTUNNEL'], [123, 'OTHR', 'SOMETHNG']], client);
+                it('should choose the notunnel tunnel type', async function () {
+                    await sendNumStrPairs([[0, 'TGHT', 'NOTUNNEL'], [123, 'OTHR', 'SOMETHNG']], client);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 0, 0, 0]));
                 });
 
-                it('should choose the notunnel tunnel type for Siemens devices', function () {
-                    sendNumStrPairs([[1, 'SICR', 'SCHANNEL'], [2, 'SICR', 'SCHANLPW']], client);
+                it('should choose the notunnel tunnel type for Siemens devices', async function () {
+                    await sendNumStrPairs([[1, 'SICR', 'SCHANNEL'], [2, 'SICR', 'SCHANLPW']], client);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 0, 0, 0]));
                 });
 
-                it('should continue to sub-auth negotiation after tunnel negotiation', function () {
-                    sendNumStrPairs([[0, 'TGHT', 'NOTUNNEL']], client);
+                it('should continue to sub-auth negotiation after tunnel negotiation', async function () {
+                    await sendNumStrPairs([[0, 'TGHT', 'NOTUNNEL']], client);
                     client._sock._websocket._getSentData();  // skip the tunnel choice here
-                    sendNumStrPairs([[1, 'STDV', 'NOAUTH__']], client);
+                    await sendNumStrPairs([[1, 'STDV', 'NOAUTH__']], client);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 0, 0, 1]));
                     expect(client._rfbInitState).to.equal('SecurityResult');
                 });
 
-                it('should accept the "no auth" auth type and transition to SecurityResult', function () {
-                    sendNumStrPairs([[0, 'TGHT', 'NOTUNNEL']], client);
+                it('should accept the "no auth" auth type and transition to SecurityResult', async function () {
+                    await sendNumStrPairs([[0, 'TGHT', 'NOTUNNEL']], client);
                     client._sock._websocket._getSentData();  // skip the tunnel choice here
-                    sendNumStrPairs([[1, 'STDV', 'NOAUTH__']], client);
+                    await sendNumStrPairs([[1, 'STDV', 'NOAUTH__']], client);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 0, 0, 1]));
                     expect(client._rfbInitState).to.equal('SecurityResult');
                 });
 
-                it('should accept VNC authentication and transition to that', function () {
-                    sendNumStrPairs([[0, 'TGHT', 'NOTUNNEL']], client);
+                it('should accept VNC authentication and transition to that', async function () {
+                    await sendNumStrPairs([[0, 'TGHT', 'NOTUNNEL']], client);
                     client._sock._websocket._getSentData();  // skip the tunnel choice here
                     sinon.spy(client, "_negotiateStdVNCAuth");
-                    sendNumStrPairs([[2, 'STDV', 'VNCAUTH__']], client);
+                    await sendNumStrPairs([[2, 'STDV', 'VNCAUTH__']], client);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 0, 0, 2]));
                     expect(client._negotiateStdVNCAuth).to.have.been.calledOnce;
                     expect(client._rfbAuthScheme).to.equal(2);
                 });
 
-                it('should fail if there are no supported auth types', function () {
+                it('should fail if there are no supported auth types', async function () {
                     let callback = sinon.spy();
                     client.addEventListener("disconnect", callback);
 
-                    sendNumStrPairs([[0, 'TGHT', 'NOTUNNEL']], client);
+                    await sendNumStrPairs([[0, 'TGHT', 'NOTUNNEL']], client);
                     client._sock._websocket._getSentData();  // skip the tunnel choice here
-                    sendNumStrPairs([[23, 'stdv', 'badval__']], client);
+                    await sendNumStrPairs([[23, 'stdv', 'badval__']], client);
 
                     expect(callback).to.have.been.calledOnce;
                     expect(callback.args[0][0].detail.clean).to.be.false;
@@ -2092,43 +2106,43 @@ describe('Remote Frame Buffer Protocol Client', function () {
             });
 
             describe('VeNCrypt Authentication (type 19) Handler', function () {
-                beforeEach(function () {
-                    sendSecurity(19, client);
+                beforeEach(async function () {
+                    await sendSecurity(19, client);
                     expect(client._sock).to.have.sent(new Uint8Array([19]));
                 });
 
-                it('should fail with non-0.2 versions', function () {
+                it('should fail with non-0.2 versions', async function () {
                     let callback = sinon.spy();
                     client.addEventListener("disconnect", callback);
 
-                    sendData(client, [0, 1]);
+                    await sendData(client, [0, 1]);
 
                     expect(callback).to.have.been.calledOnce;
                     expect(callback.args[0][0].detail.clean).to.be.false;
                 });
 
-                it('should fail if there are no supported subtypes', function () {
+                it('should fail if there are no supported subtypes', async function () {
                     // VeNCrypt version
-                    sendData(client, [0, 2]);
+                    await sendData(client, [0, 2]);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 2]));
                     // Server ACK.
-                    sendData(client, [0]);
+                    await sendData(client, [0]);
                     // Subtype list
                     let callback = sinon.spy();
                     client.addEventListener("disconnect", callback);
-                    sendData(client, [2, 0, 0, 0, 9, 0, 0, 1, 4]);
+                    await sendData(client, [2, 0, 0, 0, 9, 0, 0, 1, 4]);
                     expect(callback).to.have.been.calledOnce;
                     expect(callback.args[0][0].detail.clean).to.be.false;
                 });
 
-                it('should support standard types', function () {
+                it('should support standard types', async function () {
                     // VeNCrypt version
-                    sendData(client, [0, 2]);
+                    await sendData(client, [0, 2]);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 2]));
                     // Server ACK.
-                    sendData(client, [0]);
+                    await sendData(client, [0]);
                     // Subtype list
-                    sendData(client, [2, 0, 0, 0, 2, 0, 0, 1, 4]);
+                    await sendData(client, [2, 0, 0, 0, 2, 0, 0, 1, 4]);
 
                     let expectedResponse = [];
                     push32(expectedResponse, 2); // Chosen subtype.
@@ -2136,12 +2150,12 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     expect(client._sock).to.have.sent(new Uint8Array(expectedResponse));
                 });
 
-                it('should respect server preference order', function () {
+                it('should respect server preference order', async function () {
                     // VeNCrypt version
-                    sendData(client, [0, 2]);
+                    await sendData(client, [0, 2]);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 2]));
                     // Server ACK.
-                    sendData(client, [0]);
+                    await sendData(client, [0]);
                     // Subtype list
                     let subtypes = [ 6 ];
                     push32(subtypes, 79);
@@ -2150,7 +2164,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     push32(subtypes, 256);
                     push32(subtypes, 6);
                     push32(subtypes, 1);
-                    sendData(client, subtypes);
+                    await sendData(client, subtypes);
 
                     let expectedResponse = [];
                     push32(expectedResponse, 30); // Chosen subtype.
@@ -2158,14 +2172,14 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     expect(client._sock).to.have.sent(new Uint8Array(expectedResponse));
                 });
 
-                it('should ignore redundant VeNCrypt subtype', function () {
+                it('should ignore redundant VeNCrypt subtype', async function () {
                     // VeNCrypt version
-                    sendData(client, [0, 2]);
+                    await sendData(client, [0, 2]);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 2]));
                     // Server ACK.
-                    sendData(client, [0]);
+                    await sendData(client, [0]);
                     // Subtype list
-                    sendData(client, [2, 0, 0, 0, 19, 0, 0, 0, 2]);
+                    await sendData(client, [2, 0, 0, 0, 19, 0, 0, 0, 2]);
 
                     let expectedResponse = [];
                     push32(expectedResponse, 2); // Chosen subtype.
@@ -2175,23 +2189,26 @@ describe('Remote Frame Buffer Protocol Client', function () {
             });
 
             describe('Plain Authentication (type 256) Handler', function () {
-                beforeEach(function () {
-                    sendSecurity(19, client);
+                beforeEach(async function () {
+                    await sendSecurity(19, client);
                     expect(client._sock).to.have.sent(new Uint8Array([19]));
                     // VeNCrypt version
-                    sendData(client, [0, 2]);
+                    await sendData(client, [0, 2]);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 2]));
                     // Server ACK.
-                    sendData(client, [0]);
+                    await sendData(client, [0]);
                 });
 
-                it('should support Plain authentication', function () {
-                    client.addEventListener("credentialsrequired", () => {
-                        client.sendCredentials({ username: 'username', password: 'password' });
+                it('should support Plain authentication', async function () {
+                    let promise = new Promise((resolve, reject) => {
+                        client.addEventListener("credentialsrequired", resolve);
                     });
-                    sendData(client, [1, 0, 0, 1, 0]);
+
+                    await sendData(client, [1, 0, 0, 1, 0]);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 0, 1, 0]));
 
+                    await promise;
+                    client.sendCredentials({ username: 'username', password: 'password' });
                     clock.tick();
 
                     const expectedResponse = [];
@@ -2202,13 +2219,16 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     expect(client._sock).to.have.sent(new Uint8Array(expectedResponse));
                 });
 
-                it('should support Plain authentication with an empty password', function () {
-                    client.addEventListener("credentialsrequired", () => {
-                        client.sendCredentials({ username: 'username', password: '' });
+                it('should support Plain authentication with an empty password', async function () {
+                    let promise = new Promise((resolve, reject) => {
+                        client.addEventListener("credentialsrequired", resolve);
                     });
-                    sendData(client, [1, 0, 0, 1, 0]);
+
+                    await sendData(client, [1, 0, 0, 1, 0]);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 0, 1, 0]));
 
+                    await promise;
+                    client.sendCredentials({ username: 'username', password: '' });
                     clock.tick();
 
                     const expectedResponse = [];
@@ -2219,13 +2239,16 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     expect(client._sock).to.have.sent(new Uint8Array(expectedResponse));
                 });
 
-                it('should support Plain authentication with a very long username and password', function () {
-                    client.addEventListener("credentialsrequired", () => {
-                        client.sendCredentials({ username: 'a'.repeat(300), password: 'b'.repeat(300) });
+                it('should support Plain authentication with a very long username and password', async function () {
+                    let promise = new Promise((resolve, reject) => {
+                        client.addEventListener("credentialsrequired", resolve);
                     });
-                    sendData(client, [1, 0, 0, 1, 0]);
+
+                    await sendData(client, [1, 0, 0, 1, 0]);
                     expect(client._sock).to.have.sent(new Uint8Array([0, 0, 1, 0]));
 
+                    await promise;
+                    client.sendCredentials({ username: 'a'.repeat(300), password: 'b'.repeat(300) });
                     clock.tick();
 
                     const expectedResponse = [];
@@ -2239,17 +2262,17 @@ describe('Remote Frame Buffer Protocol Client', function () {
         });
 
         describe('Legacy SecurityResult', function () {
-            beforeEach(function () {
-                sendVer('003.007\n', client);
+            beforeEach(async function () {
+                await sendVer('003.007\n', client);
                 client._sock._websocket._getSentData();
-                sendSecurity(1, client);
+                await sendSecurity(1, client);
                 client._sock._websocket._getSentData();
             });
 
-            it('should not include reason in securityfailure event', function () {
+            it('should not include reason in securityfailure event', async function () {
                 const spy = sinon.spy();
                 client.addEventListener("securityfailure", spy);
-                sendData(client, [0, 0, 0, 2]);
+                await sendData(client, [0, 0, 0, 2]);
                 expect(spy).to.have.been.calledOnce;
                 expect(spy.args[0][0].detail.status).to.equal(2);
                 expect('reason' in spy.args[0][0].detail).to.be.false;
@@ -2257,34 +2280,34 @@ describe('Remote Frame Buffer Protocol Client', function () {
         });
 
         describe('SecurityResult', function () {
-            beforeEach(function () {
-                sendVer('003.008\n', client);
+            beforeEach(async function () {
+                await sendVer('003.008\n', client);
                 client._sock._websocket._getSentData();
-                sendSecurity(1, client);
+                await sendSecurity(1, client);
                 client._sock._websocket._getSentData();
             });
 
-            it('should fall through to ServerInitialisation on a response code of 0', function () {
-                sendData(client, [0, 0, 0, 0]);
+            it('should fall through to ServerInitialisation on a response code of 0', async function () {
+                await sendData(client, [0, 0, 0, 0]);
                 expect(client._rfbInitState).to.equal('ServerInitialisation');
             });
 
-            it('should include reason when provided in securityfailure event', function () {
+            it('should include reason when provided in securityfailure event', async function () {
                 const spy = sinon.spy();
                 client.addEventListener("securityfailure", spy);
                 const failureData = [0, 0, 0, 1, 0, 0, 0, 12, 115, 117, 99, 104,
                                      32, 102, 97, 105, 108, 117, 114, 101];
-                sendData(client, failureData);
+                await sendData(client, failureData);
                 expect(spy).to.have.been.calledOnce;
                 expect(spy.args[0][0].detail.status).to.equal(1);
                 expect(spy.args[0][0].detail.reason).to.equal('such failure');
             });
 
-            it('should not include reason when length is zero in securityfailure event', function () {
+            it('should not include reason when length is zero in securityfailure event', async function () {
                 const spy = sinon.spy();
                 client.addEventListener("securityfailure", spy);
                 const failureData = [0, 0, 0, 1, 0, 0, 0, 0];
-                sendData(client, failureData);
+                await sendData(client, failureData);
                 expect(spy).to.have.been.calledOnce;
                 expect(spy.args[0][0].detail.status).to.equal(1);
                 expect('reason' in spy.args[0][0].detail).to.be.false;
@@ -2292,24 +2315,24 @@ describe('Remote Frame Buffer Protocol Client', function () {
         });
 
         describe('ClientInitialisation', function () {
-            it('should transition to the ServerInitialisation state', function () {
+            it('should transition to the ServerInitialisation state', async function () {
                 const client = makeConnectingRFB();
                 client._rfbInitState = 'SecurityResult';
-                sendData(client, [0, 0, 0, 0]);
+                await sendData(client, [0, 0, 0, 0]);
                 expect(client._rfbInitState).to.equal('ServerInitialisation');
             });
 
-            it('should send 1 if we are in shared mode', function () {
+            it('should send 1 if we are in shared mode', async function () {
                 const client = makeConnectingRFB('wss://host:8675', { shared: true });
                 client._rfbInitState = 'SecurityResult';
-                sendData(client, [0, 0, 0, 0]);
+                await sendData(client, [0, 0, 0, 0]);
                 expect(client._sock).to.have.sent(new Uint8Array([1]));
             });
 
-            it('should send 0 if we are not in shared mode', function () {
+            it('should send 0 if we are not in shared mode', async function () {
                 const client = makeConnectingRFB('wss://host:8675', { shared: false });
                 client._rfbInitState = 'SecurityResult';
-                sendData(client, [0, 0, 0, 0]);
+                await sendData(client, [0, 0, 0, 0]);
                 expect(client._sock).to.have.sent(new Uint8Array([0]));
             });
         });
@@ -2319,7 +2342,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 client._rfbInitState = 'ServerInitialisation';
             });
 
-            function sendServerInit(opts, client) {
+            async function sendServerInit(opts, client) {
                 const fullOpts = { width: 10, height: 12, bpp: 24, depth: 24, bigEndian: 0,
                                    trueColor: 1, redMax: 255, greenMax: 255, blueMax: 255,
                                    redShift: 16, greenShift: 8, blueShift: 0, name: 'a name' };
@@ -2348,40 +2371,40 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 push8(data, 0);
                 push8(data, 0);
 
-                sendData(client, data);
+                await sendData(client, data);
 
                 const nameData = [];
                 let nameLen = [];
                 pushString(nameData, fullOpts.name);
                 push32(nameLen, nameData.length);
 
-                sendData(client, nameLen);
-                sendData(client, nameData);
+                await sendData(client, nameLen);
+                await sendData(client, nameData);
             }
 
-            it('should set the framebuffer width and height', function () {
-                sendServerInit({ width: 32, height: 84 }, client);
+            it('should set the framebuffer width and height', async function () {
+                await sendServerInit({ width: 32, height: 84 }, client);
                 expect(client._fbWidth).to.equal(32);
                 expect(client._fbHeight).to.equal(84);
             });
 
             // NB(sross): we just warn, not fail, for endian-ness and shifts, so we don't test them
 
-            it('should set the framebuffer name and call the callback', function () {
+            it('should set the framebuffer name and call the callback', async function () {
                 const spy = sinon.spy();
                 client.addEventListener("desktopname", spy);
-                sendServerInit({ name: 'som€ nam€' }, client);
+                await sendServerInit({ name: 'som€ nam€' }, client);
 
                 expect(client._fbName).to.equal('som€ nam€');
                 expect(spy).to.have.been.calledOnce;
                 expect(spy.args[0][0].detail.name).to.equal('som€ nam€');
             });
 
-            it('should handle the extended init message of the tight encoding', function () {
+            it('should handle the extended init message of the tight encoding', async function () {
                 // NB(sross): we don't actually do anything with it, so just test that we can
                 //            read it w/o throwing an error
                 client._rfbTightVNC = true;
-                sendServerInit({}, client);
+                await sendServerInit({}, client);
 
                 const tightData = [];
                 push16(tightData, 1);
@@ -2391,22 +2414,22 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 for (let i = 0; i < 16 + 32 + 48; i++) {
                     tightData.push(i);
                 }
-                sendData(client, tightData);
+                await sendData(client, tightData);
 
                 expect(client._rfbConnectionState).to.equal('connected');
             });
 
-            it('should resize the display', function () {
+            it('should resize the display', async function () {
                 sinon.spy(client._display, 'resize');
-                sendServerInit({ width: 27, height: 32 }, client);
+                await sendServerInit({ width: 27, height: 32 }, client);
 
                 expect(client._display.resize).to.have.been.calledOnce;
                 expect(client._display.resize).to.have.been.calledWith(27, 32);
             });
 
-            it('should grab the keyboard', function () {
+            it('should grab the keyboard', async function () {
                 sinon.spy(client._keyboard, 'grab');
-                sendServerInit({}, client);
+                await sendServerInit({}, client);
                 expect(client._keyboard.grab).to.have.been.calledOnce;
             });
 
@@ -2424,8 +2447,8 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 });
 
                 // TODO(directxman12): test the various options in this configuration matrix
-                it('should reply with the pixel format, client encodings, and initial update request', function () {
-                    sendServerInit({ width: 27, height: 32 }, client);
+                it('should reply with the pixel format, client encodings, and initial update request', async function () {
+                    await sendServerInit({ width: 27, height: 32 }, client);
 
                     expect(RFB.messages.pixelFormat).to.have.been.calledOnce;
                     expect(RFB.messages.pixelFormat).to.have.been.calledWith(client._sock, 24, true);
@@ -2441,8 +2464,8 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     expect(RFB.messages.fbUpdateRequest).to.have.been.calledWith(client._sock, false, 0, 0, 27, 32);
                 });
 
-                it('should reply with restricted settings for Intel AMT servers', function () {
-                    sendServerInit({ width: 27, height: 32, name: "Intel(r) AMT KVM"}, client);
+                it('should reply with restricted settings for Intel AMT servers', async function () {
+                    await sendServerInit({ width: 27, height: 32, name: "Intel(r) AMT KVM"}, client);
 
                     expect(RFB.messages.pixelFormat).to.have.been.calledOnce;
                     expect(RFB.messages.pixelFormat).to.have.been.calledWith(client._sock, 8, true);
@@ -2456,10 +2479,10 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 });
             });
 
-            it('should send the "connect" event', function () {
+            it('should send the "connect" event', async function () {
                 let spy = sinon.spy();
                 client.addEventListener('connect', spy);
-                sendServerInit({}, client);
+                await sendServerInit({}, client);
                 expect(spy).to.have.been.calledOnce;
             });
         });
@@ -2476,7 +2499,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
         });
 
         describe('Framebuffer Update Handling', function () {
-            function sendFbuMsg(rectInfo, rectData, client, rectCnt) {
+            async function sendFbuMsg(rectInfo, rectData, client, rectCnt) {
                 let data = [];
 
                 if (!rectCnt || rectCnt > -1) {
@@ -2497,10 +2520,10 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     data = data.concat(rectData[i]);
                 }
 
-                sendData(client, data);
+                await sendData(client, data);
             }
 
-            it('should send an update request if there is sufficient data', function () {
+            it('should send an update request if there is sufficient data', async function () {
                 let esock = new Websock();
                 let ews = new FakeWebSocket();
                 ews._open();
@@ -2508,18 +2531,18 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 RFB.messages.fbUpdateRequest(esock, true, 0, 0, 640, 20);
                 let expected = ews._getSentData();
 
-                client._framebufferUpdate = () => true;
-                sendData(client, [0]);
+                client._framebufferUpdate = async () => true;
+                await sendData(client, [0]);
 
                 expect(client._sock).to.have.sent(expected);
             });
 
-            it('should not send an update request if we need more data', function () {
-                sendData(client, [0]);
+            it('should not send an update request if we need more data', async function () {
+                await sendData(client, [0]);
                 expect(client._sock).to.have.sent(new Uint8Array([]));
             });
 
-            it('should resume receiving an update if we previously did not have enough data', function () {
+            it('should resume receiving an update if we previously did not have enough data', async function () {
                 let esock = new Websock();
                 let ews = new FakeWebSocket();
                 ews._open();
@@ -2528,29 +2551,29 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 let expected = ews._getSentData();
 
                 // just enough to set FBU.rects
-                sendData(client, [0, 0, 0, 3]);
+                await sendData(client, [0, 0, 0, 3]);
                 expect(client._sock._websocket._getSentData()).to.have.length(0);
 
                 client._framebufferUpdate = function () { this._sock.rQskipBytes(1); return true; };  // we magically have enough data
                 // 247 should *not* be used as the message type here
-                sendData(client, [247]);
+                await sendData(client, [247]);
                 expect(client._sock).to.have.sent(expected);
             });
 
-            it('should not send a request in continuous updates mode', function () {
+            it('should not send a request in continuous updates mode', async function () {
                 client._enabledContinuousUpdates = true;
                 client._framebufferUpdate = () => true;
-                sendData(client, [0]);
+                await sendData(client, [0]);
 
                 expect(client._sock).to.have.sent(new Uint8Array([]));
             });
 
-            it('should fail on an unsupported encoding', function () {
+            it('should fail on an unsupported encoding', async function () {
                 let callback = sinon.spy();
                 client.addEventListener("disconnect", callback);
 
                 const rectInfo = { x: 8, y: 11, width: 27, height: 32, encoding: 234 };
-                sendFbuMsg([rectInfo], [[]], client);
+                await sendFbuMsg([rectInfo], [[]], client);
 
                 expect(callback).to.have.been.calledOnce;
                 expect(callback.args[0][0].detail.clean).to.be.false;
@@ -2565,9 +2588,10 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     client._display.resize(4, 4);
                 });
 
-                it('should handle the DesktopSize pseduo-encoding', function () {
+                it('should handle the DesktopSize pseduo-encoding', async function () {
                     sinon.spy(client._display, 'resize');
-                    sendFbuMsg([{ x: 0, y: 0, width: 20, height: 50, encoding: -223 }], [[]], client);
+                    await sendFbuMsg([{ x: 0, y: 0, width: 20, height: 50,
+                                        encoding: -223 }], [[]], client);
 
                     expect(client._fbWidth).to.equal(20);
                     expect(client._fbHeight).to.equal(50);
@@ -2601,13 +2625,13 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         return data;
                     }
 
-                    it('should handle a resize requested by this client', function () {
+                    it('should handle a resize requested by this client', async function () {
                         const reasonForChange = 1; // requested by this client
                         const statusCode      = 0; // No error
 
-                        sendFbuMsg([{ x: reasonForChange, y: statusCode,
-                                      width: 20, height: 50, encoding: -308 }],
-                                   makeScreenData(1), client);
+                        await sendFbuMsg([{ x: reasonForChange, y: statusCode,
+                                            width: 20, height: 50, encoding: -308 }],
+                                         makeScreenData(1), client);
 
                         expect(client._fbWidth).to.equal(20);
                         expect(client._fbHeight).to.equal(50);
@@ -2616,13 +2640,13 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         expect(client._display.resize).to.have.been.calledWith(20, 50);
                     });
 
-                    it('should handle a resize requested by another client', function () {
+                    it('should handle a resize requested by another client', async function () {
                         const reasonForChange = 2; // requested by another client
                         const statusCode      = 0; // No error
 
-                        sendFbuMsg([{ x: reasonForChange, y: statusCode,
-                                      width: 20, height: 50, encoding: -308 }],
-                                   makeScreenData(1), client);
+                        await sendFbuMsg([{ x: reasonForChange, y: statusCode,
+                                            width: 20, height: 50, encoding: -308 }],
+                                         makeScreenData(1), client);
 
                         expect(client._fbWidth).to.equal(20);
                         expect(client._fbHeight).to.equal(50);
@@ -2631,13 +2655,13 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         expect(client._display.resize).to.have.been.calledWith(20, 50);
                     });
 
-                    it('should be able to recieve requests which contain data for multiple screens', function () {
+                    it('should be able to recieve requests which contain data for multiple screens', async function () {
                         const reasonForChange = 2; // requested by another client
                         const statusCode      = 0; // No error
 
-                        sendFbuMsg([{ x: reasonForChange, y: statusCode,
-                                      width: 60, height: 50, encoding: -308 }],
-                                   makeScreenData(3), client);
+                        await sendFbuMsg([{ x: reasonForChange, y: statusCode,
+                                            width: 60, height: 50, encoding: -308 }],
+                                         makeScreenData(3), client);
 
                         expect(client._fbWidth).to.equal(60);
                         expect(client._fbHeight).to.equal(50);
@@ -2646,13 +2670,13 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         expect(client._display.resize).to.have.been.calledWith(60, 50);
                     });
 
-                    it('should not handle a failed request', function () {
+                    it('should not handle a failed request', async function () {
                         const reasonForChange = 1; // requested by this client
                         const statusCode      = 1; // Resize is administratively prohibited
 
-                        sendFbuMsg([{ x: reasonForChange, y: statusCode,
-                                      width: 20, height: 50, encoding: -308 }],
-                                   makeScreenData(1), client);
+                        await sendFbuMsg([{ x: reasonForChange, y: statusCode,
+                                            width: 20, height: 50, encoding: -308 }],
+                                         makeScreenData(1), client);
 
                         expect(client._fbWidth).to.equal(4);
                         expect(client._fbHeight).to.equal(4);
@@ -2666,7 +2690,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         sinon.spy(client._cursor, 'change');
                     });
 
-                    it('should handle a standard cursor', function () {
+                    it('should handle a standard cursor', async function () {
                         const info = { x: 5, y: 7,
                                        width: 4, height: 4,
                                        encoding: -239};
@@ -2684,25 +2708,25 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         }
                         expected = new Uint8Array(expected);
 
-                        sendFbuMsg([info], [rect], client);
+                        await sendFbuMsg([info], [rect], client);
 
                         expect(client._cursor.change).to.have.been.calledOnce;
                         expect(client._cursor.change).to.have.been.calledWith(expected, 5, 7, 4, 4);
                     });
 
-                    it('should handle an empty cursor', function () {
+                    it('should handle an empty cursor', async function () {
                         const info = { x: 0, y: 0,
                                        width: 0, height: 0,
                                        encoding: -239};
                         const rect = [];
 
-                        sendFbuMsg([info], [rect], client);
+                        await sendFbuMsg([info], [rect], client);
 
                         expect(client._cursor.change).to.have.been.calledOnce;
                         expect(client._cursor.change).to.have.been.calledWith(new Uint8Array, 0, 0, 0, 0);
                     });
 
-                    it('should handle a transparent cursor', function () {
+                    it('should handle a transparent cursor', async function () {
                         const info = { x: 5, y: 7,
                                        width: 4, height: 4,
                                        encoding: -239};
@@ -2719,7 +2743,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         }
                         expected = new Uint8Array(expected);
 
-                        sendFbuMsg([info], [rect], client);
+                        await sendFbuMsg([info], [rect], client);
 
                         expect(client._cursor.change).to.have.been.calledOnce;
                         expect(client._cursor.change).to.have.been.calledWith(expected, 5, 7, 4, 4);
@@ -2732,7 +2756,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                             client._cursor.change.resetHistory();
                         });
 
-                        it('should show a standard cursor', function () {
+                        it('should show a standard cursor', async function () {
                             const info = { x: 5, y: 7,
                                            width: 4, height: 4,
                                            encoding: -239};
@@ -2750,20 +2774,20 @@ describe('Remote Frame Buffer Protocol Client', function () {
                             }
                             expected = new Uint8Array(expected);
 
-                            sendFbuMsg([info], [rect], client);
+                            await sendFbuMsg([info], [rect], client);
 
                             expect(client._cursor.change).to.have.been.calledOnce;
                             expect(client._cursor.change).to.have.been.calledWith(expected, 5, 7, 4, 4);
                         });
 
-                        it('should handle an empty cursor', function () {
+                        it('should handle an empty cursor', async function () {
                             const info = { x: 0, y: 0,
                                            width: 0, height: 0,
                                            encoding: -239};
                             const rect = [];
                             const dot = RFB.cursors.dot;
 
-                            sendFbuMsg([info], [rect], client);
+                            await sendFbuMsg([info], [rect], client);
 
                             expect(client._cursor.change).to.have.been.calledOnce;
                             expect(client._cursor.change).to.have.been.calledWith(dot.rgbaPixels,
@@ -2773,7 +2797,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                                                                                   dot.h);
                         });
 
-                        it('should handle a transparent cursor', function () {
+                        it('should handle a transparent cursor', async function () {
                             const info = { x: 5, y: 7,
                                            width: 4, height: 4,
                                            encoding: -239};
@@ -2785,7 +2809,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                             }
                             push32(rect, 0x00000000);
 
-                            sendFbuMsg([info], [rect], client);
+                            await sendFbuMsg([info], [rect], client);
 
                             expect(client._cursor.change).to.have.been.calledOnce;
                             expect(client._cursor.change).to.have.been.calledWith(dot.rgbaPixels,
@@ -2805,7 +2829,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         client._cursor.change.resetHistory();
                     });
 
-                    it('should handle the VMware cursor pseudo-encoding', function () {
+                    it('should handle the VMware cursor pseudo-encoding', async function () {
                         let data = [0x00, 0x00, 0xff, 0,
                                     0x00, 0xff, 0x00, 0,
                                     0x00, 0xff, 0x00, 0,
@@ -2823,13 +2847,13 @@ describe('Remote Frame Buffer Protocol Client', function () {
                             push8(rect, data[i]);
                         }
 
-                        sendFbuMsg([{ x: 0, y: 0, width: 2, height: 2,
-                                      encoding: 0x574d5664}],
-                                   [rect], client);
+                        await sendFbuMsg([{ x: 0, y: 0, width: 2, height: 2,
+                                            encoding: 0x574d5664}],
+                                         [rect], client);
                         expect(client._FBU.rects).to.equal(0);
                     });
 
-                    it('should handle insufficient cursor pixel data', function () {
+                    it('should handle insufficient cursor pixel data', async function () {
 
                         // Specified 14x23 pixels for the cursor,
                         // but only send 2x2 pixels worth of data
@@ -2851,15 +2875,15 @@ describe('Remote Frame Buffer Protocol Client', function () {
                             push8(rect, data[i]);
                         }
 
-                        sendFbuMsg([{ x: 0, y: 0, width: w, height: h,
-                                      encoding: 0x574d5664}],
-                                   [rect], client);
+                        await sendFbuMsg([{ x: 0, y: 0, width: w, height: h,
+                                            encoding: 0x574d5664}],
+                                         [rect], client);
 
                         // expect one FBU to remain unhandled
                         expect(client._FBU.rects).to.equal(1);
                     });
 
-                    it('should update the cursor when type is classic', function () {
+                    it('should update the cursor when type is classic', async function () {
                         let andMask =
                             [0xff, 0xff, 0xff, 0xff,  //Transparent
                              0xff, 0xff, 0xff, 0xff,  //Transparent
@@ -2894,10 +2918,10 @@ describe('Remote Frame Buffer Protocol Client', function () {
                                             0x33, 0x22, 0x11, 0xff,
                                             0x00, 0x00, 0x00, 0xff];
 
-                        sendFbuMsg([{ x: hotx, y: hoty,
-                                      width: w, height: h,
-                                      encoding: 0x574d5664}],
-                                   [rect], client);
+                        await sendFbuMsg([{ x: hotx, y: hoty,
+                                            width: w, height: h,
+                                            encoding: 0x574d5664}],
+                                         [rect], client);
 
                         expect(client._cursor.change)
                             .to.have.been.calledOnce;
@@ -2907,7 +2931,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                                                      w, h);
                     });
 
-                    it('should update the cursor when type is alpha', function () {
+                    it('should update the cursor when type is alpha', async function () {
                         let data = [0xee, 0x55, 0xff, 0x00, // rgba
                                     0x00, 0xff, 0x00, 0xff,
                                     0x00, 0xff, 0x00, 0x22,
@@ -2933,10 +2957,10 @@ describe('Remote Frame Buffer Protocol Client', function () {
                                             0x00, 0xff, 0x00, 0x22,
                                             0x00, 0x00, 0xff, 0xee];
 
-                        sendFbuMsg([{ x: hotx, y: hoty,
-                                      width: w, height: h,
-                                      encoding: 0x574d5664}],
-                                   [rect], client);
+                        await sendFbuMsg([{ x: hotx, y: hoty,
+                                            width: w, height: h,
+                                            encoding: 0x574d5664}],
+                                         [rect], client);
 
                         expect(client._cursor.change)
                             .to.have.been.calledOnce;
@@ -2946,31 +2970,31 @@ describe('Remote Frame Buffer Protocol Client', function () {
                                                      w, h);
                     });
 
-                    it('should not update cursor when incorrect cursor type given', function () {
+                    it('should not update cursor when incorrect cursor type given', async function () {
                         let rect = [];
                         push8(rect, 3); // invalid cursor type
                         push8(rect, 0); // padding
 
                         client._cursor.change.resetHistory();
-                        sendFbuMsg([{ x: 0, y: 0, width: 2, height: 2,
-                                      encoding: 0x574d5664}],
-                                   [rect], client);
+                        await sendFbuMsg([{ x: 0, y: 0, width: 2, height: 2,
+                                            encoding: 0x574d5664}],
+                                         [rect], client);
 
                         expect(client._cursor.change)
                             .to.not.have.been.called;
                     });
                 });
 
-                it('should handle the last_rect pseudo-encoding', function () {
-                    sendFbuMsg([{ x: 0, y: 0, width: 0, height: 0, encoding: -224}], [[]], client, 100);
+                it('should handle the last_rect pseudo-encoding', async function () {
+                    await sendFbuMsg([{ x: 0, y: 0, width: 0, height: 0, encoding: -224}], [[]], client, 100);
                     // Send a bell message and make sure it is parsed
                     let spy = sinon.spy();
                     client.addEventListener("bell", spy);
-                    sendData(client, [0x02]);
+                    await sendData(client, [0x02]);
                     expect(spy).to.have.been.calledOnce;
                 });
 
-                it('should handle the DesktopName pseudo-encoding', function () {
+                it('should handle the DesktopName pseudo-encoding', async function () {
                     let data = [];
                     push32(data, 13);
                     pushString(data, "som€ nam€");
@@ -2978,7 +3002,8 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     const spy = sinon.spy();
                     client.addEventListener("desktopname", spy);
 
-                    sendFbuMsg([{ x: 0, y: 0, width: 0, height: 0, encoding: -307 }], [data], client);
+                    await sendFbuMsg([{ x: 0, y: 0, width: 0, height: 0,
+                                        encoding: -307 }], [data], client);
 
                     expect(client._fbName).to.equal('som€ nam€');
                     expect(spy).to.have.been.calledOnce;
@@ -2988,21 +3013,21 @@ describe('Remote Frame Buffer Protocol Client', function () {
         });
 
         describe('XVP Message Handling', function () {
-            it('should set the XVP version and fire the callback with the version on XVP_INIT', function () {
+            it('should set the XVP version and fire the callback with the version on XVP_INIT', async function () {
                 const spy = sinon.spy();
                 client.addEventListener("capabilities", spy);
-                sendData(client, [250, 0, 10, 1]);
+                await sendData(client, [250, 0, 10, 1]);
                 expect(client._rfbXvpVer).to.equal(10);
                 expect(spy).to.have.been.calledOnce;
                 expect(spy.args[0][0].detail.capabilities.power).to.be.true;
                 expect(client.capabilities.power).to.be.true;
             });
 
-            it('should fail on unknown XVP message types', function () {
+            it('should fail on unknown XVP message types', async function () {
                 let callback = sinon.spy();
                 client.addEventListener("disconnect", callback);
 
-                sendData(client, [250, 0, 10, 237]);
+                await sendData(client, [250, 0, 10, 237]);
 
                 expect(callback).to.have.been.calledOnce;
                 expect(callback.args[0][0].detail.clean).to.be.false;
@@ -3010,7 +3035,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
         });
 
         describe('Normal Clipboard Handling Receive', function () {
-            it('should fire the clipboard callback with the retrieved text on ServerCutText', function () {
+            it('should fire the clipboard callback with the retrieved text on ServerCutText', async function () {
                 const expectedStr = 'cheese!';
                 const data = [3, 0, 0, 0];
                 push32(data, expectedStr.length);
@@ -3018,7 +3043,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                 const spy = sinon.spy();
                 client.addEventListener("clipboard", spy);
 
-                sendData(client, data);
+                await sendData(client, data);
                 expect(spy).to.have.been.calledOnce;
                 expect(spy.args[0][0].detail.text).to.equal(expectedStr);
             });
@@ -3035,7 +3060,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     RFB.messages.extendedClipboardCaps.restore();
                 });
 
-                it('should update capabilities when receiving a Caps message', function () {
+                it('should update capabilities when receiving a Caps message', async function () {
                     let data = [3, 0, 0, 0];
                     const flags = [0x1F, 0x00, 0x00, 0x03];
                     let fileSizes = [0x00, 0x00, 0x00, 0x1E,
@@ -3044,7 +3069,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     push32(data, toUnsigned32bit(-12));
                     data = data.concat(flags);
                     data = data.concat(fileSizes);
-                    sendData(client, data);
+                    await sendData(client, data);
 
                     // Check that we give an response caps when we receive one
                     expect(RFB.messages.extendedClipboardCaps).to.have.been.calledOnce;
@@ -3061,7 +3086,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
             describe('Extended Clipboard Handling Receive', function () {
 
-                beforeEach(function () {
+                beforeEach(async function () {
                     // Send our capabilities
                     let data = [3, 0, 0, 0];
                     const flags = [0x1F, 0x00, 0x00, 0x01];
@@ -3070,11 +3095,11 @@ describe('Remote Frame Buffer Protocol Client', function () {
                     push32(data, toUnsigned32bit(-8));
                     data = data.concat(flags);
                     data = data.concat(fileSizes);
-                    sendData(client, data);
+                    await sendData(client, data);
                 });
 
                 describe('Handle Provide', function () {
-                    it('should update clipboard with correct Unicode data from a Provide message', function () {
+                    it('should update clipboard with correct Unicode data from a Provide message', async function () {
                         let expectedData = "Aå漢字!";
                         let data = [3, 0, 0, 0];
                         const flags = [0x10, 0x00, 0x00, 0x01];
@@ -3091,13 +3116,13 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         const spy = sinon.spy();
                         client.addEventListener("clipboard", spy);
 
-                        sendData(client, data);
+                        await sendData(client, data);
                         expect(spy).to.have.been.calledOnce;
                         expect(spy.args[0][0].detail.text).to.equal(expectedData);
                         client.removeEventListener("clipboard", spy);
                     });
 
-                    it('should update clipboard with correct escape characters from a Provide message ', function () {
+                    it('should update clipboard with correct escape characters from a Provide message ', async function () {
                         let expectedData = "Oh\nmy!";
                         let data = [3, 0, 0, 0];
                         const flags = [0x10, 0x00, 0x00, 0x01];
@@ -3115,13 +3140,13 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         const spy = sinon.spy();
                         client.addEventListener("clipboard", spy);
 
-                        sendData(client, data);
+                        await sendData(client, data);
                         expect(spy).to.have.been.calledOnce;
                         expect(spy.args[0][0].detail.text).to.equal(expectedData);
                         client.removeEventListener("clipboard", spy);
                     });
 
-                    it('should be able to handle large Provide messages', function () {
+                    it('should be able to handle large Provide messages', async function () {
                         let expectedData = "hello".repeat(100000);
                         let data = [3, 0, 0, 0];
                         const flags = [0x10, 0x00, 0x00, 0x01];
@@ -3139,7 +3164,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         const spy = sinon.spy();
                         client.addEventListener("clipboard", spy);
 
-                        sendData(client, data);
+                        await sendData(client, data);
                         expect(spy).to.have.been.calledOnce;
                         expect(spy.args[0][0].detail.text).to.equal(expectedData);
                         client.removeEventListener("clipboard", spy);
@@ -3156,14 +3181,14 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         RFB.messages.extendedClipboardRequest.restore();
                     });
 
-                    it('should make a request with supported formats when receiving a notify message', function () {
+                    it('should make a request with supported formats when receiving a notify message', async function () {
                         let data = [3, 0, 0, 0];
                         const flags = [0x08, 0x00, 0x00, 0x07];
                         push32(data, toUnsigned32bit(-4));
                         data = data.concat(flags);
                         let expectedData = [0x01];
 
-                        sendData(client, data);
+                        await sendData(client, data);
 
                         expect(RFB.messages.extendedClipboardRequest).to.have.been.calledOnce;
                         expect(RFB.messages.extendedClipboardRequest).to.have.been.calledWith(client._sock, expectedData);
@@ -3179,20 +3204,20 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         RFB.messages.extendedClipboardNotify.restore();
                     });
 
-                    it('should send an empty Notify when receiving a Peek and no excisting clipboard data', function () {
+                    it('should send an empty Notify when receiving a Peek and no excisting clipboard data', async function () {
                         let data = [3, 0, 0, 0];
                         const flags = [0x04, 0x00, 0x00, 0x00];
                         push32(data, toUnsigned32bit(-4));
                         data = data.concat(flags);
                         let expectedData = [];
 
-                        sendData(client, data);
+                        await sendData(client, data);
 
                         expect(RFB.messages.extendedClipboardNotify).to.have.been.calledOnce;
                         expect(RFB.messages.extendedClipboardNotify).to.have.been.calledWith(client._sock, expectedData);
                     });
 
-                    it('should send a Notify message with supported formats when receiving a Peek', function () {
+                    it('should send a Notify message with supported formats when receiving a Peek', async function () {
                         let data = [3, 0, 0, 0];
                         const flags = [0x04, 0x00, 0x00, 0x00];
                         push32(data, toUnsigned32bit(-4));
@@ -3204,7 +3229,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         client.clipboardPasteFrom("HejHej");
                         RFB.messages.extendedClipboardNotify.resetHistory();
 
-                        sendData(client, data);
+                        await sendData(client, data);
 
                         expect(RFB.messages.extendedClipboardNotify).to.have.been.calledOnce;
                         expect(RFB.messages.extendedClipboardNotify).to.have.been.calledWith(client._sock, expectedData);
@@ -3220,7 +3245,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         RFB.messages.extendedClipboardProvide.restore();
                     });
 
-                    it('should send a Provide message with supported formats when receiving a Request', function () {
+                    it('should send a Provide message with supported formats when receiving a Request', async function () {
                         let data = [3, 0, 0, 0];
                         const flags = [0x02, 0x00, 0x00, 0x01];
                         push32(data, toUnsigned32bit(-4));
@@ -3230,7 +3255,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         client.clipboardPasteFrom("HejHej");
                         expect(RFB.messages.extendedClipboardProvide).to.not.have.been.called;
 
-                        sendData(client, data);
+                        await sendData(client, data);
 
                         expect(RFB.messages.extendedClipboardProvide).to.have.been.calledOnce;
                         expect(RFB.messages.extendedClipboardProvide).to.have.been.calledWith(client._sock, expectedData, ["HejHej"]);
@@ -3240,14 +3265,14 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
         });
 
-        it('should fire the bell callback on Bell', function () {
+        it('should fire the bell callback on Bell', async function () {
             const spy = sinon.spy();
             client.addEventListener("bell", spy);
-            sendData(client, [2]);
+            await sendData(client, [2]);
             expect(spy).to.have.been.calledOnce;
         });
 
-        it('should respond correctly to ServerFence', function () {
+        it('should respond correctly to ServerFence', async function () {
             const payload = "foo\x00ab9";
 
             let esock = new Websock();
@@ -3261,7 +3286,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
             RFB.messages.clientFence(esock, 0xffffffff, payload);
             let incoming = ews._getSentData();
 
-            sendData(client, incoming);
+            await sendData(client, incoming);
 
             expect(client._sock).to.have.sent(expected);
 
@@ -3270,12 +3295,12 @@ describe('Remote Frame Buffer Protocol Client', function () {
             RFB.messages.clientFence(esock, (1<<0) | (1<<31), payload);
             incoming = ews._getSentData();
 
-            sendData(client, incoming);
+            await sendData(client, incoming);
 
             expect(client._sock).to.have.sent(expected);
         });
 
-        it('should enable continuous updates on first EndOfContinousUpdates', function () {
+        it('should enable continuous updates on first EndOfContinousUpdates', async function () {
             let esock = new Websock();
             let ews = new FakeWebSocket();
             ews._open();
@@ -3285,17 +3310,17 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
             expect(client._enabledContinuousUpdates).to.be.false;
 
-            sendData(client, [150]);
+            await sendData(client, [150]);
 
             expect(client._enabledContinuousUpdates).to.be.true;
             expect(client._sock).to.have.sent(expected);
         });
 
-        it('should disable continuous updates on subsequent EndOfContinousUpdates', function () {
+        it('should disable continuous updates on subsequent EndOfContinousUpdates', async function () {
             client._enabledContinuousUpdates = true;
             client._supportsContinuousUpdates = true;
 
-            sendData(client, [150]);
+            await sendData(client, [150]);
 
             expect(client._enabledContinuousUpdates).to.be.false;
         });
@@ -3319,11 +3344,11 @@ describe('Remote Frame Buffer Protocol Client', function () {
             expect(client._sock).to.have.sent(expected);
         });
 
-        it('should fail on an unknown message type', function () {
+        it('should fail on an unknown message type', async function () {
             let callback = sinon.spy();
             client.addEventListener("disconnect", callback);
 
-            sendData(client, [87]);
+            await sendData(client, [87]);
 
             expect(callback).to.have.been.calledOnce;
             expect(callback.args[0][0].detail.clean).to.be.false;
@@ -4452,30 +4477,30 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
         describe('WebSocket Events', function () {
             // message events
-            it('should do nothing if we receive an empty message and have nothing in the queue', function () {
+            it('should do nothing if we receive an empty message and have nothing in the queue', async function () {
                 sinon.spy(client, "_normalMsg");
-                sendData(client, []);
+                await sendData(client, []);
                 expect(client._normalMsg).to.not.have.been.called;
             });
 
-            it('should handle a message in the connected state as a normal message', function () {
+            it('should handle a message in the connected state as a normal message', async function () {
                 sinon.spy(client, "_normalMsg");
-                sendData(client, [1, 2, 3]);
+                await sendData(client, [1, 2, 3]);
                 expect(client._normalMsg).to.have.been.called;
             });
 
-            it('should handle a message in any non-disconnected/failed state like an init message', function () {
+            it('should handle a message in any non-disconnected/failed state like an init message', async function () {
                 client._rfbConnectionState = 'connecting';
                 client._rfbInitState = 'ProtocolVersion';
                 sinon.spy(client, "_initMsg");
-                sendData(client, [1, 2, 3]);
+                await sendData(client, [1, 2, 3]);
                 expect(client._initMsg).to.have.been.called;
             });
 
-            it('should process all normal messages directly', function () {
+            it('should process all normal messages directly', async function () {
                 const spy = sinon.spy();
                 client.addEventListener("bell", spy);
-                sendData(client, [0x02, 0x02]);
+                await sendData(client, [0x02, 0x02]);
                 expect(spy).to.have.been.calledTwice;
             });
 

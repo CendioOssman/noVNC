@@ -12,7 +12,7 @@ export default class RawDecoder {
         this._lines = 0;
     }
 
-    decodeRect(x, y, width, height, sock, display, depth) {
+    async decodeRect(x, y, width, height, sock, display, depth) {
         if ((width === 0) || (height === 0)) {
             return true;
         }
@@ -31,7 +31,7 @@ export default class RawDecoder {
 
             const curY = y + (height - this._lines);
 
-            let data = sock.rQshiftBytes(bytesPerLine, false);
+            let data = await sock.rQshiftBytes(bytesPerLine, false);
 
             // Convert data if needed
             if (depth == 8) {

@@ -12,15 +12,15 @@ export default class RREDecoder {
         this._subrects = 0;
     }
 
-    decodeRect(x, y, width, height, sock, display, depth) {
+    async decodeRect(x, y, width, height, sock, display, depth) {
         if (this._subrects === 0) {
             if (sock.rQwait("RRE", 4 + 4)) {
                 return false;
             }
 
-            this._subrects = sock.rQshift32();
+            this._subrects = await sock.rQshift32();
 
-            let color = sock.rQshiftBytes(4);  // Background
+            let color = await sock.rQshiftBytes(4);  // Background
             display.fillRect(x, y, width, height, color);
         }
 
@@ -29,11 +29,11 @@ export default class RREDecoder {
                 return false;
             }
 
-            let color = sock.rQshiftBytes(4);
-            let sx = sock.rQshift16();
-            let sy = sock.rQshift16();
-            let swidth = sock.rQshift16();
-            let sheight = sock.rQshift16();
+            let color = await sock.rQshiftBytes(4);
+            let sx = await sock.rQshift16();
+            let sy = await sock.rQshift16();
+            let swidth = await sock.rQshift16();
+            let sheight = await sock.rQshift16();
             display.fillRect(x + sx, y + sy, swidth, sheight, color);
 
             this._subrects--;

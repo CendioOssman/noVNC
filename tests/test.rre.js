@@ -7,24 +7,15 @@ import RREDecoder from '../core/decoders/rre.js';
 
 import FakeWebSocket from './fake.websocket.js';
 
-function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
+async function testDecodeRect(decoder, x, y, width, height, data, display, depth) {
     let sock;
-    let done = false;
+    let done;
 
     sock = new Websock;
     sock.open("ws://example.com");
 
-    sock.on('message', () => {
-        done = decoder.decodeRect(x, y, width, height, sock, display, depth);
-    });
-
-    // Empty messages are filtered at multiple layers, so we need to
-    // do a direct call
-    if (data.length === 0) {
-        done = decoder.decodeRect(x, y, width, height, sock, display, depth);
-    } else {
-        sock._websocket._receiveData(new Uint8Array(data));
-    }
+    sock._websocket._receiveData(new Uint8Array(data));
+    done = await decoder.decodeRect(x, y, width, height, sock, display, depth);
 
     display.flip();
 
@@ -58,7 +49,7 @@ describe('RRE Decoder', function () {
 
     // TODO(directxman12): test rre_chunk_sz?
 
-    it('should handle the RRE encoding', function () {
+    it('should handle the RRE encoding', async function () {
         let data = [];
         push32(data, 2); // 2 subrects
         push32(data, 0x00ff0000); // becomes 00ff0000 --> #00FF00 bg color
@@ -79,7 +70,7 @@ describe('RRE Decoder', function () {
         push16(data, 2); // width: 2
         push16(data, 2); // height: 2
 
-        let done = testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
+        let done = await testDecodeRect(decoder, 0, 0, 4, 4, data, display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,
@@ -92,15 +83,15 @@ describe('RRE Decoder', function () {
         expect(display).to.have.displayed(targetData);
     });
 
-    it('should handle empty rects', function () {
+    it('should handle empty rects', async function () {
         display.fillRect(0, 0, 4, 4, [ 0x00, 0x00, 0xff ]);
         display.fillRect(2, 0, 2, 2, [ 0x00, 0xff, 0x00 ]);
         display.fillRect(0, 2, 2, 2, [ 0x00, 0xff, 0x00 ]);
 
-        let done = testDecodeRect(decoder, 1, 2, 0, 0,
-                                  [ 0x00, 0x00, 0x00, 0x00,
-                                    0xff, 0xff, 0xff, 0xff ],
-                                  display, 24);
+        let done = await testDecodeRect(decoder, 1, 2, 0, 0,
+                                        [ 0x00, 0x00, 0x00, 0x00,
+                                          0xff, 0xff, 0xff, 0xff ],
+                                        display, 24);
 
         let targetData = new Uint8Array([
             0x00, 0x00, 0xff, 255, 0x00, 0x00, 0xff, 255, 0x00, 0xff, 0x00, 255, 0x00, 0xff, 0x00, 255,

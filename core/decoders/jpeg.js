@@ -17,10 +17,10 @@ export default class JPEGDecoder {
         this._segments = [];
     }
 
-    decodeRect(x, y, width, height, sock, display, depth) {
+    async decodeRect(x, y, width, height, sock, display, depth) {
         // A rect of JPEG encodings is simply a JPEG file
         while (true) {
-            let segment = this._readSegment(sock);
+            let segment = await this._readSegment(sock);
             if (segment === null) {
                 return false;
             }
@@ -86,17 +86,17 @@ export default class JPEGDecoder {
         return true;
     }
 
-    _readSegment(sock) {
+    async _readSegment(sock) {
         if (sock.rQwait("JPEG", 2)) {
             return null;
         }
 
-        let marker = sock.rQshift8();
+        let marker = await sock.rQshift8();
         if (marker != 0xFF) {
             throw new Error("Illegal JPEG marker received (byte: " +
                                marker + ")");
         }
-        let type = sock.rQshift8();
+        let type = await sock.rQshift8();
         if (type >= 0xD0 && type <= 0xD9 || type == 0x01) {
             // No length after marker
             return new Uint8Array([marker, type]);
@@ -106,7 +106,7 @@ export default class JPEGDecoder {
             return null;
         }
 
-        let length = sock.rQshift16();
+        let length = await sock.rQshift16();
         if (length < 2) {
             throw new Error("Illegal JPEG length received (length: " +
                                length + ")");
@@ -124,7 +124,7 @@ export default class JPEGDecoder {
                 if (sock.rQwait("JPEG", length-2+extra, 4)) {
                     return null;
                 }
-                let data = sock.rQpeekBytes(length-2+extra, false);
+                let data = await sock.rQpeekBytes(length-2+extra, false);
                 if (data.at(-2) === 0xFF && data.at(-1) !== 0x00 &&
                     !(data.at(-1) >= 0xD0 && data.at(-1) <= 0xD7)) {
                     extra -= 2;
@@ -139,7 +139,7 @@ export default class JPEGDecoder {
         segment[1] = type;
         segment[2] = length >> 8;
         segment[3] = length;
-        segment.set(sock.rQshiftBytes(length-2+extra, false), 4);
+        segment.set(await sock.rQshiftBytes(length-2+extra, false), 4);
 
         return segment;
     }

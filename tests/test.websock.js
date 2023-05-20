@@ -17,47 +17,47 @@ describe('Websock', function () {
         });
 
         describe('rQpeek8', function () {
-            it('should peek at the next byte without poping it off the queue', function () {
+            it('should peek at the next byte without poping it off the queue', async function () {
                 websock._receiveData(new Uint8Array([0xab, 0xcd]));
-                expect(sock.rQpeek8()).to.equal(0xab);
-                expect(sock.rQpeek8()).to.equal(0xab);
+                expect(await sock.rQpeek8()).to.equal(0xab);
+                expect(await sock.rQpeek8()).to.equal(0xab);
             });
         });
 
         describe('rQshift8()', function () {
-            it('should pop a single byte from the receive queue', function () {
+            it('should pop a single byte from the receive queue', async function () {
                 websock._receiveData(new Uint8Array([0xab, 0xcd]));
-                expect(sock.rQshift8()).to.equal(0xab);
-                expect(sock.rQshift8()).to.equal(0xcd);
+                expect(await sock.rQshift8()).to.equal(0xab);
+                expect(await sock.rQshift8()).to.equal(0xcd);
             });
         });
 
         describe('rQshift16()', function () {
-            it('should pop two bytes from the receive queue and return a single number', function () {
+            it('should pop two bytes from the receive queue and return a single number', async function () {
                 websock._receiveData(new Uint8Array([0xab, 0xcd, 0x12, 0x34]));
-                expect(sock.rQshift16()).to.equal(0xabcd);
-                expect(sock.rQshift16()).to.equal(0x1234);
+                expect(await sock.rQshift16()).to.equal(0xabcd);
+                expect(await sock.rQshift16()).to.equal(0x1234);
             });
         });
 
         describe('rQshift32()', function () {
-            it('should pop four bytes from the receive queue and return a single number', function () {
+            it('should pop four bytes from the receive queue and return a single number', async function () {
                 websock._receiveData(new Uint8Array([0xab, 0xcd, 0x12, 0x34,
                                                      0x88, 0xee, 0x11, 0x33]));
-                expect(sock.rQshift32()).to.equal(0xabcd1234);
-                expect(sock.rQshift32()).to.equal(0x88ee1133);
+                expect(await sock.rQshift32()).to.equal(0xabcd1234);
+                expect(await sock.rQshift32()).to.equal(0x88ee1133);
             });
         });
 
         describe('rQshiftStr', function () {
-            it('should shift the given number of bytes off of the receive queue and return a string', function () {
+            it('should shift the given number of bytes off of the receive queue and return a string', async function () {
                 websock._receiveData(new Uint8Array([0xab, 0xcd, 0x12, 0x34,
                                                      0x88, 0xee, 0x11, 0x33]));
-                expect(sock.rQshiftStr(4)).to.equal('\xab\xcd\x12\x34');
-                expect(sock.rQshiftStr(4)).to.equal('\x88\xee\x11\x33');
+                expect(await sock.rQshiftStr(4)).to.equal('\xab\xcd\x12\x34');
+                expect(await sock.rQshiftStr(4)).to.equal('\x88\xee\x11\x33');
             });
 
-            it('should be able to handle very large strings', function () {
+            it('should be able to handle very large strings', async function () {
                 const BIG_LEN = 500000;
                 const incoming = new Uint8Array(BIG_LEN);
                 let expected = "";
@@ -74,41 +74,41 @@ describe('Websock', function () {
                 }
                 websock._receiveData(incoming);
 
-                const shifted = sock.rQshiftStr(BIG_LEN);
+                const shifted = await sock.rQshiftStr(BIG_LEN);
 
                 expect(shifted).to.be.equal(expected);
             });
         });
 
         describe('rQshiftBytes', function () {
-            it('should shift the given number of bytes of the receive queue and return an array', function () {
+            it('should shift the given number of bytes of the receive queue and return an array', async function () {
                 websock._receiveData(new Uint8Array([0xab, 0xcd, 0x12, 0x34,
                                                      0x88, 0xee, 0x11, 0x33]));
-                expect(sock.rQshiftBytes(4)).to.array.equal(new Uint8Array([0xab, 0xcd, 0x12, 0x34]));
-                expect(sock.rQshiftBytes(4)).to.array.equal(new Uint8Array([0x88, 0xee, 0x11, 0x33]));
+                expect(await sock.rQshiftBytes(4)).to.array.equal(new Uint8Array([0xab, 0xcd, 0x12, 0x34]));
+                expect(await sock.rQshiftBytes(4)).to.array.equal(new Uint8Array([0x88, 0xee, 0x11, 0x33]));
             });
 
-            it('should return a shared array if requested', function () {
+            it('should return a shared array if requested', async function () {
                 websock._receiveData(new Uint8Array([0xab, 0xcd, 0x12, 0x34,
                                                      0x88, 0xee, 0x11, 0x33]));
-                const bytes = sock.rQshiftBytes(4, false);
+                const bytes = await sock.rQshiftBytes(4, false);
                 expect(bytes).to.array.equal(new Uint8Array([0xab, 0xcd, 0x12, 0x34]));
                 expect(bytes.buffer.byteLength).to.not.equal(bytes.length);
             });
         });
 
         describe('rQpeekBytes', function () {
-            it('should not modify the receive queue', function () {
+            it('should not modify the receive queue', async function () {
                 websock._receiveData(new Uint8Array([0xab, 0xcd, 0x12, 0x34,
                                                      0x88, 0xee, 0x11, 0x33]));
-                expect(sock.rQpeekBytes(4)).to.array.equal(new Uint8Array([0xab, 0xcd, 0x12, 0x34]));
-                expect(sock.rQpeekBytes(4)).to.array.equal(new Uint8Array([0xab, 0xcd, 0x12, 0x34]));
+                expect(await sock.rQpeekBytes(4)).to.array.equal(new Uint8Array([0xab, 0xcd, 0x12, 0x34]));
+                expect(await sock.rQpeekBytes(4)).to.array.equal(new Uint8Array([0xab, 0xcd, 0x12, 0x34]));
             });
 
-            it('should return a shared array if requested', function () {
+            it('should return a shared array if requested', async function () {
                 websock._receiveData(new Uint8Array([0xab, 0xcd, 0x12, 0x34,
                                                      0x88, 0xee, 0x11, 0x33]));
-                const bytes = sock.rQpeekBytes(4, false);
+                const bytes = await sock.rQpeekBytes(4, false);
                 expect(bytes).to.array.equal(new Uint8Array([0xab, 0xcd, 0x12, 0x34]));
                 expect(bytes.buffer.byteLength).to.not.equal(bytes.length);
             });
@@ -128,21 +128,21 @@ describe('Websock', function () {
                 expect(sock.rQwait('hi', 8)).to.be.false;
             });
 
-            it('should return true and reduce rQi by "goback" if there are not enough bytes', function () {
-                expect(sock.rQshift32()).to.equal(0xabcd1234);
+            it('should return true and reduce rQi by "goback" if there are not enough bytes', async function () {
+                expect(await sock.rQshift32()).to.equal(0xabcd1234);
                 expect(sock.rQwait('hi', 8, 2)).to.be.true;
-                expect(sock.rQshift32()).to.equal(0x123488ee);
+                expect(await sock.rQshift32()).to.equal(0x123488ee);
             });
 
-            it('should raise an error if we try to go back more than possible', function () {
-                expect(sock.rQshift32()).to.equal(0xabcd1234);
+            it('should raise an error if we try to go back more than possible', async function () {
+                expect(await sock.rQshift32()).to.equal(0xabcd1234);
                 expect(() => sock.rQwait('hi', 8, 6)).to.throw(Error);
             });
 
-            it('should not reduce rQi if there are enough bytes', function () {
-                expect(sock.rQshift32()).to.equal(0xabcd1234);
+            it('should not reduce rQi if there are enough bytes', async function () {
+                expect(await sock.rQshift32()).to.equal(0xabcd1234);
                 expect(sock.rQwait('hi', 4, 2)).to.be.false;
-                expect(sock.rQshift32()).to.equal(0x88ee1133);
+                expect(await sock.rQshift32()).to.equal(0x88ee1133);
             });
         });
     });
@@ -558,10 +558,10 @@ describe('Websock', function () {
             sock._allocateBuffers();
         });
 
-        it('should support adding data to the receive queue', function () {
+        it('should support adding data to the receive queue', async function () {
             const msg = { data: new Uint8Array([1, 2, 3]) };
             sock._recvMessage(msg);
-            expect(sock.rQshiftStr(3)).to.equal('\x01\x02\x03');
+            expect(await sock.rQshiftStr(3)).to.equal('\x01\x02\x03');
         });
 
         it('should call the message event handler if present', function () {

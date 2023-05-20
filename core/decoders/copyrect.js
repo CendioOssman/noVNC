@@ -8,13 +8,13 @@
  */
 
 export default class CopyRectDecoder {
-    decodeRect(x, y, width, height, sock, display, depth) {
+    async decodeRect(x, y, width, height, sock, display, depth) {
         if (sock.rQwait("COPYRECT", 4)) {
             return false;
         }
 
-        let deltaX = sock.rQshift16();
-        let deltaY = sock.rQshift16();
+        let deltaX = await sock.rQshift16();
+        let deltaY = await sock.rQshift16();
 
         if ((width === 0) || (height === 0)) {
             return true;

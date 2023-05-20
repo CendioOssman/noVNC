@@ -95,28 +95,28 @@ export default class Websock {
     }
 
     // Receive Queue
-    rQpeek8() {
+    async rQpeek8() {
         return this._rQ[this._rQi];
     }
 
-    rQskipBytes(bytes) {
+    async rQskipBytes(bytes) {
         this._rQi += bytes;
     }
 
-    rQshift8() {
-        return this._rQshift(1);
+    async rQshift8() {
+        return await this._rQshift(1);
     }
 
-    rQshift16() {
-        return this._rQshift(2);
+    async rQshift16() {
+        return await this._rQshift(2);
     }
 
-    rQshift32() {
-        return this._rQshift(4);
+    async rQshift32() {
+        return await this._rQshift(4);
     }
 
     // TODO(directxman12): test performance with these vs a DataView
-    _rQshift(bytes) {
+    async _rQshift(bytes) {
         let res = 0;
         for (let byte = bytes - 1; byte >= 0; byte--) {
             res += this._rQ[this._rQi++] << (byte * 8);
@@ -124,17 +124,17 @@ export default class Websock {
         return res >>> 0;
     }
 
-    rQshiftStr(len) {
+    async rQshiftStr(len) {
         let str = "";
         // Handle large arrays in steps to avoid long strings on the stack
         for (let i = 0; i < len; i += 4096) {
-            let part = this.rQshiftBytes(Math.min(4096, len - i), false);
+            let part = await this.rQshiftBytes(Math.min(4096, len - i), false);
             str += String.fromCharCode.apply(null, part);
         }
         return str;
     }
 
-    rQshiftBytes(len, copy=true) {
+    async rQshiftBytes(len, copy=true) {
         this._rQi += len;
         if (copy) {
             return this._rQ.slice(this._rQi - len, this._rQi);
@@ -143,13 +143,13 @@ export default class Websock {
         }
     }
 
-    rQshiftTo(target, len) {
+    async rQshiftTo(target, len) {
         // TODO: make this just use set with views when using a ArrayBuffer to store the rQ
         target.set(new Uint8Array(this._rQ.buffer, this._rQi, len));
         this._rQi += len;
     }
 
-    rQpeekBytes(len, copy=true) {
+    async rQpeekBytes(len, copy=true) {
         if (copy) {
             return this._rQ.slice(this._rQi, this._rQi + len);
         } else {

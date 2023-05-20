@@ -965,6 +965,23 @@ export default class RFB extends EventTargetMixin {
     }
 
     _handleMessage() {
+        this._pendingMessages = true;
+        this._messageLoop();
+    }
+
+    async _messageLoop() {
+        if (this._handlingMessages) {
+            return;
+        }
+        this._handlingMessages = true;
+        while (this._pendingMessages) {
+            this._pendingMessages = false;
+            await this._handleMessages();
+        }
+        this._handlingMessages = false;
+    }
+
+    async _handleMessages() {
         if (this._sock.rQwait("message", 1)) {
             Log.Warn("handleMessage called on an empty receive queue");
             return;
@@ -979,7 +996,7 @@ export default class RFB extends EventTargetMixin {
                     if (this._flushing) {
                         break;
                     }
-                    if (!this._normalMsg()) {
+                    if (!await this._normalMsg()) {
                         break;
                     }
                     if (this._sock.rQwait("message", 1)) {
@@ -989,7 +1006,7 @@ export default class RFB extends EventTargetMixin {
                 break;
             case 'connecting':
                 while (this._rfbConnectionState === 'connecting') {
-                    if (!this._initMsg()) {
+                    if (!await this._initMsg()) {
                         break;
                     }
                 }
@@ -1353,12 +1370,12 @@ export default class RFB extends EventTargetMixin {
 
     // Message Handlers
 
-    _negotiateProtocolVersion() {
+    async _negotiateProtocolVersion() {
         if (this._sock.rQwait("version", 12)) {
             return false;
         }
 
-        const sversion = this._sock.rQshiftStr(12).substr(4, 7);
+        const sversion = (await this._sock.rQshiftStr(12)).substr(4, 7);
         Log.Info("Server ProtocolVersion: " + sversion);
         let isRepeater = 0;
         switch (sversion) {
@@ -1423,10 +1440,10 @@ export default class RFB extends EventTargetMixin {
         return clientTypes.includes(type);
     }
 
-    _negotiateSecurity() {
+    async _negotiateSecurity() {
         if (this._rfbVersion >= 3.7) {
             // Server sends supported list, client decides
-            const numTypes = this._sock.rQshift8();
+            const numTypes = await this._sock.rQshift8();
             if (this._sock.rQwait("security type", numTypes, 1)) { return false; }
 
             if (numTypes === 0) {
@@ -1436,7 +1453,7 @@ export default class RFB extends EventTargetMixin {
                 return true;
             }
 
-            const types = this._sock.rQshiftBytes(numTypes);
+            const types = await this._sock.rQshiftBytes(numTypes);
             Log.Debug("Server security types: " + types);
 
             // Look for a matching security type in the order that the
@@ -1459,7 +1476,7 @@ export default class RFB extends EventTargetMixin {
         } else {
             // Server decides
             if (this._sock.rQwait("security scheme", 4)) { return false; }
-            this._rfbAuthScheme = this._sock.rQshift32();
+            this._rfbAuthScheme = await this._sock.rQshift32();
 
             if (this._rfbAuthScheme == 0) {
                 this._rfbInitState = "SecurityReason";
@@ -1475,16 +1492,16 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _handleSecurityReason() {
+    async _handleSecurityReason() {
         if (this._sock.rQwait("reason length", 4)) {
             return false;
         }
-        const strlen = this._sock.rQshift32();
+        const strlen = await this._sock.rQshift32();
         let reason = "";
 
         if (strlen > 0) {
             if (this._sock.rQwait("reason", strlen, 4)) { return false; }
-            reason = this._sock.rQshiftStr(strlen);
+            reason = await this._sock.rQshiftStr(strlen);
         }
 
         if (reason !== "") {
@@ -1509,7 +1526,7 @@ export default class RFB extends EventTargetMixin {
     }
 
     // authentication
-    _negotiateXvpAuth() {
+    async _negotiateXvpAuth() {
         if (!this._getCredentials(["username", "password", "target"])) {
             return false;
         }
@@ -1523,18 +1540,18 @@ export default class RFB extends EventTargetMixin {
 
         this._rfbAuthScheme = securityTypeVNCAuth;
 
-        return this._negotiateAuthentication();
+        return await this._negotiateAuthentication();
     }
 
     // VeNCrypt authentication, currently only supports version 0.2 and only Plain subtype
-    _negotiateVeNCryptAuth() {
+    async _negotiateVeNCryptAuth() {
 
         // waiting for VeNCrypt version
         if (this._rfbVeNCryptState == 0) {
             if (this._sock.rQwait("vencrypt version", 2)) { return false; }
 
-            const major = this._sock.rQshift8();
-            const minor = this._sock.rQshift8();
+            const major = await this._sock.rQshift8();
+            const minor = await this._sock.rQshift8();
 
             if (!(major == 0 && minor == 2)) {
                 this._fail("Unsupported VeNCrypt version " + major + "." + minor);
@@ -1551,7 +1568,7 @@ export default class RFB extends EventTargetMixin {
         if (this._rfbVeNCryptState == 1) {
             if (this._sock.rQwait("vencrypt ack", 1)) { return false; }
 
-            const res = this._sock.rQshift8();
+            const res = await this._sock.rQshift8();
 
             if (res != 0) {
                 this._fail("VeNCrypt failure " + res);
@@ -1566,7 +1583,7 @@ export default class RFB extends EventTargetMixin {
         if (this._rfbVeNCryptState == 2) { // waiting for subtypes length
             if (this._sock.rQwait("vencrypt subtypes length", 1)) { return false; }
 
-            const subtypesLength = this._sock.rQshift8();
+            const subtypesLength = await this._sock.rQshift8();
             if (subtypesLength < 1) {
                 this._fail("VeNCrypt subtypes empty");
                 return false;
@@ -1582,7 +1599,7 @@ export default class RFB extends EventTargetMixin {
 
             const subtypes = [];
             for (let i = 0; i < this._rfbVeNCryptSubtypesLength; i++) {
-                subtypes.push(this._sock.rQshift32());
+                subtypes.push(await this._sock.rQshift32());
             }
 
             // Look for a matching security type in the order that the
@@ -1613,7 +1630,7 @@ export default class RFB extends EventTargetMixin {
         }
     }
 
-    _negotiatePlainAuth() {
+    async _negotiatePlainAuth() {
         if (!this._getCredentials(["username", "password"])) {
             return false;
         }
@@ -1631,7 +1648,7 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _negotiateStdVNCAuth() {
+    async _negotiateStdVNCAuth() {
         if (this._sock.rQwait("auth challenge", 16)) { return false; }
 
         if (!this._getCredentials(["password"])) {
@@ -1639,7 +1656,7 @@ export default class RFB extends EventTargetMixin {
         }
 
         // TODO(directxman12): make genDES not require an Array
-        const challenge = Array.prototype.slice.call(this._sock.rQshiftBytes(16));
+        const challenge = Array.from(await this._sock.rQshiftBytes(16));
         const response = RFB.genDES(this._rfbCredentials.password, challenge);
         this._sock.sQpushBytes(response);
         this._sock.flush();
@@ -1647,7 +1664,7 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _negotiateARDAuth() {
+    async _negotiateARDAuth() {
         if (!this._getCredentials(["username", "password"])) {
             return false;
         }
@@ -1666,15 +1683,15 @@ export default class RFB extends EventTargetMixin {
 
         if (this._sock.rQwait("read ard", 4)) { return false; }
 
-        let generator = this._sock.rQshiftBytes(2);   // DH base generator value
+        let generator = await this._sock.rQshiftBytes(2);   // DH base generator value
 
-        let keyLength = this._sock.rQshift16();
+        let keyLength = await this._sock.rQshift16();
 
         if (this._sock.rQwait("read ard keylength", keyLength*2, 4)) { return false; }
 
         // read the server values
-        let prime = this._sock.rQshiftBytes(keyLength);  // predetermined prime modulus
-        let serverPublicKey = this._sock.rQshiftBytes(keyLength); // other party's public key
+        let prime = await this._sock.rQshiftBytes(keyLength);  // predetermined prime modulus
+        let serverPublicKey = await this._sock.rQshiftBytes(keyLength); // other party's public key
 
         let clientKey = legacyCrypto.generateKey(
             { name: "DH", g: generator, p: prime }, false, ["deriveBits"]);
@@ -1712,7 +1729,7 @@ export default class RFB extends EventTargetMixin {
         this._resumeAuthentication();
     }
 
-    _negotiateTightUnixAuth() {
+    async _negotiateTightUnixAuth() {
         if (!this._getCredentials(["username", "password"])) {
             return false;
         }
@@ -1727,16 +1744,16 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _negotiateTightTunnels(numTunnels) {
+    async _negotiateTightTunnels(numTunnels) {
         const clientSupportedTunnelTypes = {
             0: { vendor: 'TGHT', signature: 'NOTUNNEL' }
         };
         const serverSupportedTunnelTypes = {};
         // receive tunnel capabilities
         for (let i = 0; i < numTunnels; i++) {
-            const capCode = this._sock.rQshift32();
-            const capVendor = this._sock.rQshiftStr(4);
-            const capSignature = this._sock.rQshiftStr(8);
+            const capCode = await this._sock.rQshift32();
+            const capVendor = await this._sock.rQshiftStr(4);
+            const capSignature = await this._sock.rQshiftStr(8);
             serverSupportedTunnelTypes[capCode] = { vendor: capVendor, signature: capSignature };
         }
 
@@ -1771,10 +1788,10 @@ export default class RFB extends EventTargetMixin {
         }
     }
 
-    _negotiateTightAuth() {
+    async _negotiateTightAuth() {
         if (!this._rfbTightVNC) {  // first pass, do the tunnel negotiation
             if (this._sock.rQwait("num tunnels", 4)) { return false; }
-            const numTunnels = this._sock.rQshift32();
+            const numTunnels = await this._sock.rQshift32();
             if (numTunnels > 0 && this._sock.rQwait("tunnel capabilities", 16 * numTunnels, 4)) { return false; }
 
             this._rfbTightVNC = true;
@@ -1787,7 +1804,7 @@ export default class RFB extends EventTargetMixin {
 
         // second pass, do the sub-auth negotiation
         if (this._sock.rQwait("sub auth count", 4)) { return false; }
-        const subAuthCount = this._sock.rQshift32();
+        const subAuthCount = await this._sock.rQshift32();
         if (subAuthCount === 0) {  // empty sub-auth list received means 'no auth' subtype selected
             this._rfbInitState = 'SecurityResult';
             return true;
@@ -1804,8 +1821,8 @@ export default class RFB extends EventTargetMixin {
         const serverSupportedTypes = [];
 
         for (let i = 0; i < subAuthCount; i++) {
-            this._sock.rQshift32(); // capNum
-            const capabilities = this._sock.rQshiftStr(12);
+            await this._sock.rQshift32(); // capNum
+            const capabilities = await this._sock.rQshiftStr(12);
             serverSupportedTypes.push(capabilities);
         }
 
@@ -1847,7 +1864,7 @@ export default class RFB extends EventTargetMixin {
         this.dispatchEvent(event);
     }
 
-    _negotiateRA2neAuth() {
+    async _negotiateRA2neAuth() {
         if (this._rfbRSAAESAuthenticationState === null) {
             this._rfbRSAAESAuthenticationState = new RSAAESAuthenticationState(this._sock, () => this._rfbCredentials);
             this._rfbRSAAESAuthenticationState.addEventListener(
@@ -1877,16 +1894,16 @@ export default class RFB extends EventTargetMixin {
         return false;
     }
 
-    _negotiateMSLogonIIAuth() {
+    async _negotiateMSLogonIIAuth() {
         if (this._sock.rQwait("mslogonii dh param", 24)) { return false; }
 
         if (!this._getCredentials(["username", "password"])) {
             return false;
         }
 
-        const g = this._sock.rQshiftBytes(8);
-        const p = this._sock.rQshiftBytes(8);
-        const A = this._sock.rQshiftBytes(8);
+        const g = await this._sock.rQshiftBytes(8);
+        const p = await this._sock.rQshiftBytes(8);
+        const A = await this._sock.rQshiftBytes(8);
         const dhKey = legacyCrypto.generateKey({ name: "DH", g: g, p: p }, true, ["deriveBits"]);
         const B = legacyCrypto.exportKey("raw", dhKey.publicKey);
         const secret = legacyCrypto.deriveBits({ name: "DH", public: A }, dhKey.privateKey, 64);
@@ -1916,38 +1933,38 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _negotiateAuthentication() {
+    async _negotiateAuthentication() {
         switch (this._rfbAuthScheme) {
             case securityTypeNone:
                 this._rfbInitState = 'SecurityResult';
                 return true;
 
             case securityTypeXVP:
-                return this._negotiateXvpAuth();
+                return await this._negotiateXvpAuth();
 
             case securityTypeARD:
-                return this._negotiateARDAuth();
+                return await this._negotiateARDAuth();
 
             case securityTypeVNCAuth:
-                return this._negotiateStdVNCAuth();
+                return await this._negotiateStdVNCAuth();
 
             case securityTypeTight:
-                return this._negotiateTightAuth();
+                return await this._negotiateTightAuth();
 
             case securityTypeVeNCrypt:
-                return this._negotiateVeNCryptAuth();
+                return await this._negotiateVeNCryptAuth();
 
             case securityTypePlain:
-                return this._negotiatePlainAuth();
+                return await this._negotiatePlainAuth();
 
             case securityTypeUnixLogon:
-                return this._negotiateTightUnixAuth();
+                return await this._negotiateTightUnixAuth();
 
             case securityTypeRA2ne:
-                return this._negotiateRA2neAuth();
+                return await this._negotiateRA2neAuth();
 
             case securityTypeMSLogonII:
-                return this._negotiateMSLogonIIAuth();
+                return await this._negotiateMSLogonIIAuth();
 
             default:
                 this._fail("Unsupported auth scheme (scheme: " +
@@ -1956,7 +1973,7 @@ export default class RFB extends EventTargetMixin {
         }
     }
 
-    _handleSecurityResult() {
+    async _handleSecurityResult() {
         // There is no security choice, and hence no security result
         // until RFB 3.7
         if (this._rfbVersion < 3.7) {
@@ -1966,7 +1983,7 @@ export default class RFB extends EventTargetMixin {
 
         if (this._sock.rQwait('VNC auth response ', 4)) { return false; }
 
-        const status = this._sock.rQshift32();
+        const status = await this._sock.rQshift32();
 
         if (status === 0) { // OK
             this._rfbInitState = 'ClientInitialisation';
@@ -1989,43 +2006,43 @@ export default class RFB extends EventTargetMixin {
         }
     }
 
-    _negotiateServerInit() {
+    async _negotiateServerInit() {
         if (this._sock.rQwait("server initialization", 24)) { return false; }
 
         /* Screen size */
-        const width = this._sock.rQshift16();
-        const height = this._sock.rQshift16();
+        const width = await this._sock.rQshift16();
+        const height = await this._sock.rQshift16();
 
         /* PIXEL_FORMAT */
-        const bpp         = this._sock.rQshift8();
-        const depth       = this._sock.rQshift8();
-        const bigEndian  = this._sock.rQshift8();
-        const trueColor  = this._sock.rQshift8();
+        const bpp         = await this._sock.rQshift8();
+        const depth       = await this._sock.rQshift8();
+        const bigEndian  = await this._sock.rQshift8();
+        const trueColor  = await this._sock.rQshift8();
 
-        const redMax     = this._sock.rQshift16();
-        const greenMax   = this._sock.rQshift16();
-        const blueMax    = this._sock.rQshift16();
-        const redShift   = this._sock.rQshift8();
-        const greenShift = this._sock.rQshift8();
-        const blueShift  = this._sock.rQshift8();
-        this._sock.rQskipBytes(3);  // padding
+        const redMax     = await this._sock.rQshift16();
+        const greenMax   = await this._sock.rQshift16();
+        const blueMax    = await this._sock.rQshift16();
+        const redShift   = await this._sock.rQshift8();
+        const greenShift = await this._sock.rQshift8();
+        const blueShift  = await this._sock.rQshift8();
+        await this._sock.rQskipBytes(3);  // padding
 
         // NB(directxman12): we don't want to call any callbacks or print messages until
         //                   *after* we're past the point where we could backtrack
 
         /* Connection name/title */
-        const nameLength = this._sock.rQshift32();
+        const nameLength = await this._sock.rQshift32();
         if (this._sock.rQwait('server init name', nameLength, 24)) { return false; }
-        let name = this._sock.rQshiftStr(nameLength);
+        let name = await this._sock.rQshiftStr(nameLength);
         name = decodeUTF8(name, true);
 
         if (this._rfbTightVNC) {
             if (this._sock.rQwait('TightVNC extended server init header', 8, 24 + nameLength)) { return false; }
             // In TightVNC mode, ServerInit message is extended
-            const numServerMessages = this._sock.rQshift16();
-            const numClientMessages = this._sock.rQshift16();
-            const numEncodings = this._sock.rQshift16();
-            this._sock.rQskipBytes(2);  // padding
+            const numServerMessages = await this._sock.rQshift16();
+            const numClientMessages = await this._sock.rQshift16();
+            const numEncodings = await this._sock.rQshift16();
+            await this._sock.rQskipBytes(2);  // padding
 
             const totalMessagesLength = (numServerMessages + numClientMessages + numEncodings) * 16;
             if (this._sock.rQwait('TightVNC extended server init header', totalMessagesLength, 32 + nameLength)) { return false; }
@@ -2034,13 +2051,13 @@ export default class RFB extends EventTargetMixin {
             // so we just skip the all of this.
 
             // TIGHT server message capabilities
-            this._sock.rQskipBytes(16 * numServerMessages);
+            await this._sock.rQskipBytes(16 * numServerMessages);
 
             // TIGHT client message capabilities
-            this._sock.rQskipBytes(16 * numClientMessages);
+            await this._sock.rQskipBytes(16 * numClientMessages);
 
             // TIGHT encoding capabilities
-            this._sock.rQskipBytes(16 * numEncodings);
+            await this._sock.rQskipBytes(16 * numEncodings);
         }
 
         // NB(directxman12): these are down here so that we don't run them multiple times
@@ -2123,22 +2140,22 @@ export default class RFB extends EventTargetMixin {
      *   ClientInitialization - not triggered by server message
      *   ServerInitialization
      */
-    _initMsg() {
+    async _initMsg() {
         switch (this._rfbInitState) {
             case 'ProtocolVersion':
-                return this._negotiateProtocolVersion();
+                return await this._negotiateProtocolVersion();
 
             case 'Security':
-                return this._negotiateSecurity();
+                return await this._negotiateSecurity();
 
             case 'Authentication':
-                return this._negotiateAuthentication();
+                return await this._negotiateAuthentication();
 
             case 'SecurityResult':
-                return this._handleSecurityResult();
+                return await this._handleSecurityResult();
 
             case 'SecurityReason':
-                return this._handleSecurityReason();
+                return await this._handleSecurityReason();
 
             case 'ClientInitialisation':
                 this._sock.sQpush8(this._shared ? 1 : 0); // ClientInitialisation
@@ -2147,7 +2164,7 @@ export default class RFB extends EventTargetMixin {
                 return true;
 
             case 'ServerInitialisation':
-                return this._negotiateServerInit();
+                return await this._negotiateServerInit();
 
             default:
                 this._fail("Unknown init state (state: " +
@@ -2164,28 +2181,28 @@ export default class RFB extends EventTargetMixin {
         setTimeout(this._initMsg.bind(this), 0);
     }
 
-    _handleSetColourMapMsg() {
+    async _handleSetColourMapMsg() {
         Log.Debug("SetColorMapEntries");
 
         this._fail("Unexpected SetColorMapEntries message");
         return false;
     }
 
-    _handleServerCutText() {
+    async _handleServerCutText() {
         Log.Debug("ServerCutText");
 
         if (this._sock.rQwait("ServerCutText header", 7, 1)) { return false; }
 
-        this._sock.rQskipBytes(3);  // Padding
+        await this._sock.rQskipBytes(3);  // Padding
 
-        let length = this._sock.rQshift32();
+        let length = await this._sock.rQshift32();
         length = toSigned32bit(length);
 
         if (this._sock.rQwait("ServerCutText content", Math.abs(length), 8)) { return false; }
 
         if (length >= 0) {
             //Standard msg
-            const text = this._sock.rQshiftStr(length);
+            const text = await this._sock.rQshiftStr(length);
             if (this._viewOnly) {
                 return true;
             }
@@ -2197,7 +2214,7 @@ export default class RFB extends EventTargetMixin {
         } else {
             //Extended msg.
             length = Math.abs(length);
-            const flags = this._sock.rQshift32();
+            const flags = await this._sock.rQshift32();
             let formats = flags & 0x0000FFFF;
             let actions = flags & 0xFF000000;
 
@@ -2215,7 +2232,7 @@ export default class RFB extends EventTargetMixin {
                         this._clipboardServerCapabilitiesFormats[index] = true;
                         // We don't send unsolicited clipboard, so we
                         // ignore the size
-                        this._sock.rQshift32();
+                        await this._sock.rQshift32();
                     }
                 }
 
@@ -2288,7 +2305,7 @@ export default class RFB extends EventTargetMixin {
                 this._clipboardText = null;
 
                 // FIXME: Should probably verify that this data was actually requested
-                let zlibStream = this._sock.rQshiftBytes(length - 4);
+                let zlibStream = await this._sock.rQshiftBytes(length - 4);
                 let streamInflator = new Inflator();
                 let textData = null;
 
@@ -2340,11 +2357,11 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _handleServerFenceMsg() {
+    async _handleServerFenceMsg() {
         if (this._sock.rQwait("ServerFence header", 8, 1)) { return false; }
-        this._sock.rQskipBytes(3); // Padding
-        let flags = this._sock.rQshift32();
-        let length = this._sock.rQshift8();
+        await this._sock.rQskipBytes(3); // Padding
+        let flags = await this._sock.rQshift32();
+        let length = await this._sock.rQshift8();
 
         if (this._sock.rQwait("ServerFence payload", length, 9)) { return false; }
 
@@ -2353,7 +2370,7 @@ export default class RFB extends EventTargetMixin {
             length = 64;
         }
 
-        const payload = this._sock.rQshiftStr(length);
+        const payload = await this._sock.rQshiftStr(length);
 
         this._supportsFence = true;
 
@@ -2383,11 +2400,11 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _handleXvpMsg() {
+    async _handleXvpMsg() {
         if (this._sock.rQwait("XVP version and message", 3, 1)) { return false; }
-        this._sock.rQskipBytes(1);  // Padding
-        const xvpVer = this._sock.rQshift8();
-        const xvpMsg = this._sock.rQshift8();
+        await this._sock.rQskipBytes(1);  // Padding
+        const xvpVer = await this._sock.rQshift8();
+        const xvpMsg = await this._sock.rQshift8();
 
         switch (xvpMsg) {
             case 0:  // XVP_FAIL
@@ -2406,18 +2423,18 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _normalMsg() {
+    async _normalMsg() {
         let msgType;
         if (this._FBU.rects > 0) {
             msgType = 0;
         } else {
-            msgType = this._sock.rQshift8();
+            msgType = await this._sock.rQshift8();
         }
 
         let first, ret;
         switch (msgType) {
             case 0:  // FramebufferUpdate
-                ret = this._framebufferUpdate();
+                ret = await this._framebufferUpdate();
                 if (ret && !this._enabledContinuousUpdates) {
                     RFB.messages.fbUpdateRequest(this._sock, true, 0, 0,
                                                  this._fbWidth, this._fbHeight);
@@ -2425,7 +2442,7 @@ export default class RFB extends EventTargetMixin {
                 return ret;
 
             case 1:  // SetColorMapEntries
-                return this._handleSetColourMapMsg();
+                return await this._handleSetColourMapMsg();
 
             case 2:  // Bell
                 Log.Debug("Bell");
@@ -2435,7 +2452,7 @@ export default class RFB extends EventTargetMixin {
                 return true;
 
             case 3:  // ServerCutText
-                return this._handleServerCutText();
+                return await this._handleServerCutText();
 
             case 150: // EndOfContinuousUpdates
                 first = !this._supportsContinuousUpdates;
@@ -2452,23 +2469,23 @@ export default class RFB extends EventTargetMixin {
                 return true;
 
             case 248: // ServerFence
-                return this._handleServerFenceMsg();
+                return await this._handleServerFenceMsg();
 
             case 250:  // XVP
-                return this._handleXvpMsg();
+                return await this._handleXvpMsg();
 
             default:
                 this._fail("Unexpected server message (type " + msgType + ")");
-                Log.Debug("sock.rQpeekBytes(30): " + this._sock.rQpeekBytes(30));
+                Log.Debug("sock.rQpeekBytes(30): " + await this._sock.rQpeekBytes(30));
                 return true;
         }
     }
 
-    _framebufferUpdate() {
+    async _framebufferUpdate() {
         if (this._FBU.rects === 0) {
             if (this._sock.rQwait("FBU header", 3, 1)) { return false; }
-            this._sock.rQskipBytes(1);  // Padding
-            this._FBU.rects = this._sock.rQshift16();
+            await this._sock.rQskipBytes(1);  // Padding
+            this._FBU.rects = await this._sock.rQshift16();
 
             // Make sure the previous frame is fully rendered first
             // to avoid building up an excessive queue
@@ -2491,16 +2508,16 @@ export default class RFB extends EventTargetMixin {
                 if (this._sock.rQwait("rect header", 12)) { return false; }
                 /* New FramebufferUpdate */
 
-                this._FBU.x = this._sock.rQshift16();
-                this._FBU.y = this._sock.rQshift16();
-                this._FBU.width = this._sock.rQshift16();
-                this._FBU.height = this._sock.rQshift16();
-                this._FBU.encoding = this._sock.rQshift32();
+                this._FBU.x = await this._sock.rQshift16();
+                this._FBU.y = await this._sock.rQshift16();
+                this._FBU.width = await this._sock.rQshift16();
+                this._FBU.height = await this._sock.rQshift16();
+                this._FBU.encoding = await this._sock.rQshift32();
                 /* Encodings are signed */
                 this._FBU.encoding >>= 0;
             }
 
-            if (!this._handleRect()) {
+            if (!await this._handleRect()) {
                 return false;
             }
 
@@ -2513,38 +2530,38 @@ export default class RFB extends EventTargetMixin {
         return true;  // We finished this FBU
     }
 
-    _handleRect() {
+    async _handleRect() {
         switch (this._FBU.encoding) {
             case encodings.pseudoEncodingLastRect:
                 this._FBU.rects = 1; // Will be decreased when we return
                 return true;
 
             case encodings.pseudoEncodingVMwareCursor:
-                return this._handleVMwareCursor();
+                return await this._handleVMwareCursor();
 
             case encodings.pseudoEncodingCursor:
-                return this._handleCursor();
+                return await this._handleCursor();
 
             case encodings.pseudoEncodingQEMUExtendedKeyEvent:
                 this._qemuExtKeyEventSupported = true;
                 return true;
 
             case encodings.pseudoEncodingDesktopName:
-                return this._handleDesktopName();
+                return await this._handleDesktopName();
 
             case encodings.pseudoEncodingDesktopSize:
                 this._resize(this._FBU.width, this._FBU.height);
                 return true;
 
             case encodings.pseudoEncodingExtendedDesktopSize:
-                return this._handleExtendedDesktopSize();
+                return await this._handleExtendedDesktopSize();
 
             default:
-                return this._handleDataRect();
+                return await this._handleDataRect();
         }
     }
 
-    _handleVMwareCursor() {
+    async _handleVMwareCursor() {
         const hotx = this._FBU.x;  // hotspot-x
         const hoty = this._FBU.y;  // hotspot-y
         const w = this._FBU.width;
@@ -2553,9 +2570,9 @@ export default class RFB extends EventTargetMixin {
             return false;
         }
 
-        const cursorType = this._sock.rQshift8();
+        const cursorType = await this._sock.rQshift8();
 
-        this._sock.rQshift8(); //Padding
+        await this._sock.rQshift8(); //Padding
 
         let rgba;
         const bytesPerPixel = 4;
@@ -2574,12 +2591,12 @@ export default class RFB extends EventTargetMixin {
 
             let andMask = new Array(w * h);
             for (let pixel = 0; pixel < (w * h); pixel++) {
-                andMask[pixel] = this._sock.rQshift32();
+                andMask[pixel] = await this._sock.rQshift32();
             }
 
             let xorMask = new Array(w * h);
             for (let pixel = 0; pixel < (w * h); pixel++) {
-                xorMask[pixel] = this._sock.rQshift32();
+                xorMask[pixel] = await this._sock.rQshift32();
             }
 
             for (let pixel = 0; pixel < (w * h); pixel++) {
@@ -2641,7 +2658,7 @@ export default class RFB extends EventTargetMixin {
             rgba = new Array(w * h * bytesPerPixel);
 
             for (let pixel = 0; pixel < (w * h); pixel++) {
-                let data = this._sock.rQshift32();
+                let data = await this._sock.rQshift32();
 
                 rgba[(pixel * 4)     ] = data >> 24 & 0xff; //r
                 rgba[(pixel * 4) + 1 ] = data >> 16 & 0xff; //g
@@ -2660,7 +2677,7 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _handleCursor() {
+    async _handleCursor() {
         const hotx = this._FBU.x;  // hotspot-x
         const hoty = this._FBU.y;  // hotspot-y
         const w = this._FBU.width;
@@ -2675,8 +2692,8 @@ export default class RFB extends EventTargetMixin {
         }
 
         // Decode from BGRX pixels + bit mask to RGBA
-        const pixels = this._sock.rQshiftBytes(pixelslength);
-        const mask = this._sock.rQshiftBytes(masklength);
+        const pixels = await this._sock.rQshiftBytes(pixelslength);
+        const mask = await this._sock.rQshiftBytes(masklength);
         let rgba = new Uint8Array(w * h * 4);
 
         let pixIdx = 0;
@@ -2697,18 +2714,17 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _handleDesktopName() {
+    async _handleDesktopName() {
         if (this._sock.rQwait("DesktopName", 4)) {
             return false;
         }
 
-        let length = this._sock.rQshift32();
+        let length = await this._sock.rQshift32();
 
         if (this._sock.rQwait("DesktopName", length, 4)) {
             return false;
         }
-
-        let name = this._sock.rQshiftStr(length);
+        let name = await this._sock.rQshiftStr(length);
         name = decodeUTF8(name, true);
 
         this._setDesktopName(name);
@@ -2716,12 +2732,12 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _handleExtendedDesktopSize() {
+    async _handleExtendedDesktopSize() {
         if (this._sock.rQwait("ExtendedDesktopSize", 4)) {
             return false;
         }
 
-        const numberOfScreens = this._sock.rQpeek8();
+        const numberOfScreens = await this._sock.rQpeek8();
 
         let bytes = 4 + (numberOfScreens * 16);
         if (this._sock.rQwait("ExtendedDesktopSize", bytes)) {
@@ -2731,20 +2747,20 @@ export default class RFB extends EventTargetMixin {
         const firstUpdate = !this._supportsSetDesktopSize;
         this._supportsSetDesktopSize = true;
 
-        this._sock.rQskipBytes(1);  // number-of-screens
-        this._sock.rQskipBytes(3);  // padding
+        await this._sock.rQskipBytes(1);  // number-of-screens
+        await this._sock.rQskipBytes(3);  // padding
 
         for (let i = 0; i < numberOfScreens; i += 1) {
             // Save the id and flags of the first screen
             if (i === 0) {
-                this._screenID = this._sock.rQshift32();    // id
-                this._sock.rQskipBytes(2);                  // x-position
-                this._sock.rQskipBytes(2);                  // y-position
-                this._sock.rQskipBytes(2);                  // width
-                this._sock.rQskipBytes(2);                  // height
-                this._screenFlags = this._sock.rQshift32(); // flags
+                this._screenID = await this._sock.rQshift32();      // id
+                await this._sock.rQskipBytes(2);                    // x-position
+                await this._sock.rQskipBytes(2);                    // y-position
+                await this._sock.rQskipBytes(2);                    // width
+                await this._sock.rQskipBytes(2);                    // height
+                this._screenFlags = await this._sock.rQshift32();   // flags
             } else {
-                this._sock.rQskipBytes(16);
+                await this._sock.rQskipBytes(16);
             }
         }
 
@@ -2791,7 +2807,7 @@ export default class RFB extends EventTargetMixin {
         return true;
     }
 
-    _handleDataRect() {
+    async _handleDataRect() {
         let decoder = this._decoders[this._FBU.encoding];
         if (!decoder) {
             this._fail("Unsupported encoding (encoding: " +
@@ -2800,10 +2816,10 @@ export default class RFB extends EventTargetMixin {
         }
 
         try {
-            return decoder.decodeRect(this._FBU.x, this._FBU.y,
-                                      this._FBU.width, this._FBU.height,
-                                      this._sock, this._display,
-                                      this._fbDepth);
+            return await decoder.decodeRect(this._FBU.x, this._FBU.y,
+                                            this._FBU.width, this._FBU.height,
+                                            this._sock, this._display,
+                                            this._fbDepth);
         } catch (err) {
             this._fail("Error decoding rect: " + err);
             return false;

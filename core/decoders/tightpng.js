@@ -10,8 +10,8 @@
 import TightDecoder from './tight.js';
 
 export default class TightPNGDecoder extends TightDecoder {
-    _pngRect(x, y, width, height, sock, display, depth) {
-        let data = this._readData(sock);
+    async _pngRect(x, y, width, height, sock, display, depth) {
+        let data = await this._readData(sock);
         if (data === null) {
             return false;
         }
@@ -21,7 +21,7 @@ export default class TightPNGDecoder extends TightDecoder {
         return true;
     }
 
-    _basicRect(ctl, x, y, width, height, sock, display, depth) {
+    async _basicRect(ctl, x, y, width, height, sock, display, depth) {
         throw new Error("BasicCompression received in TightPNG rect");
     }
 }
