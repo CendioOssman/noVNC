@@ -955,6 +955,9 @@ export default class RFB extends EventTargetMixin {
      */
     _fail(details) {
         switch (this._rfbConnectionState) {
+            case 'disconnected':
+                Log.Debug("Failed while disconnected: " + details);
+                return;
             case 'disconnecting':
                 Log.Error("Failed when disconnecting: " + details);
                 break;
