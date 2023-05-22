@@ -1375,8 +1375,7 @@ export default class RFB extends EventTargetMixin {
                 this._rfbVersion = 3.8;
                 break;
             default:
-                this._fail("Invalid server version " + sversion);
-                return;
+                throw Error("Invalid server version " + sversion);
         }
 
         if (isRepeater) {
@@ -1443,8 +1442,7 @@ export default class RFB extends EventTargetMixin {
             }
 
             if (this._rfbAuthScheme === -1) {
-                this._fail("Unsupported security types (types: " + types + ")");
-                return;
+                throw "Unsupported security types (types: " + types + ")";
             }
 
             this._sock.sQpush8(this._rfbAuthScheme);
@@ -1478,16 +1476,16 @@ export default class RFB extends EventTargetMixin {
                 { detail: { status: this._securityStatus,
                             reason: reason } }));
 
-            this._fail("Security negotiation failed on " +
-                       this._securityContext +
-                       " (reason: " + reason + ")");
+            throw "Security negotiation failed on " +
+                  this._securityContext +
+                  " (reason: " + reason + ")";
         } else {
             this.dispatchEvent(new CustomEvent(
                 "securityfailure",
                 { detail: { status: this._securityStatus } }));
 
-            this._fail("Security negotiation failed on " +
-                       this._securityContext);
+            throw "Security negotiation failed on " +
+                  this._securityContext;
         }
     }
 
@@ -1516,8 +1514,7 @@ export default class RFB extends EventTargetMixin {
             const minor = await this._sock.rQshift8();
 
             if (!(major == 0 && minor == 2)) {
-                this._fail("Unsupported VeNCrypt version " + major + "." + minor);
-                return;
+                throw "Unsupported VeNCrypt version " + major + "." + minor;
             }
 
             this._sock.sQpush8(0);
@@ -1531,8 +1528,7 @@ export default class RFB extends EventTargetMixin {
             const res = await this._sock.rQshift8();
 
             if (res != 0) {
-                this._fail("VeNCrypt failure " + res);
-                return;
+                throw "VeNCrypt failure " + res;
             }
 
             this._rfbVeNCryptState = 2;
@@ -1543,8 +1539,7 @@ export default class RFB extends EventTargetMixin {
         if (this._rfbVeNCryptState == 2) { // waiting for subtypes length
             const subtypesLength = await this._sock.rQshift8();
             if (subtypesLength < 1) {
-                this._fail("VeNCrypt subtypes empty");
-                return;
+                throw "VeNCrypt subtypes empty";
             }
 
             this._rfbVeNCryptSubtypesLength = subtypesLength;
@@ -1574,8 +1569,7 @@ export default class RFB extends EventTargetMixin {
             }
 
             if (this._rfbAuthScheme === -1) {
-                this._fail("Unsupported security types (types: " + subtypes + ")");
-                return;
+                throw "Unsupported security types (types: " + subtypes + ")";
             }
 
             this._sock.sQpush32(this._rfbAuthScheme);
@@ -1694,18 +1688,16 @@ export default class RFB extends EventTargetMixin {
         if (serverSupportedTunnelTypes[0]) {
             if (serverSupportedTunnelTypes[0].vendor != clientSupportedTunnelTypes[0].vendor ||
                 serverSupportedTunnelTypes[0].signature != clientSupportedTunnelTypes[0].signature) {
-                this._fail("Client's tunnel type had the incorrect " +
-                           "vendor or signature");
-                return;
+                throw "Client's tunnel type had the incorrect " +
+                      "vendor or signature";
             }
             Log.Debug("Selected tunnel type: " + clientSupportedTunnelTypes[0]);
             this._sock.sQpush32(0); // use NOTUNNEL
             this._sock.flush();
             return; // wait until we receive the sub auth count to continue
         } else {
-            this._fail("Server wanted tunnels, but doesn't support " +
-                       "the notunnel type");
-            return;
+            throw "Server wanted tunnels, but doesn't support " +
+                  "the notunnel type";
         }
     }
 
@@ -1761,14 +1753,13 @@ export default class RFB extends EventTargetMixin {
                         this._rfbAuthScheme = securityTypeUnixLogon;
                         return;
                     default:
-                        this._fail("Unsupported tiny auth scheme " +
-                                   "(scheme: " + authType + ")");
-                        return;
+                        throw "Unsupported tiny auth scheme " +
+                              "(scheme: " + authType + ")";
                 }
             }
         }
 
-        this._fail("No supported sub-auth types!");
+        throw "No supported sub-auth types!";
     }
 
     async _negotiateRA2neAuth() {
@@ -1997,8 +1988,8 @@ export default class RFB extends EventTargetMixin {
                 break;
 
             default:
-                this._fail("Unsupported auth scheme (scheme: " +
-                           this._rfbAuthScheme + ")");
+                throw "Unsupported auth scheme (scheme: " +
+                      this._rfbAuthScheme + ")";
         }
     }
 
@@ -2025,7 +2016,7 @@ export default class RFB extends EventTargetMixin {
                     "securityfailure",
                     { detail: { status: status } }));
 
-                this._fail("Security handshake failed");
+                throw "Security handshake failed";
             }
         }
     }
@@ -2189,15 +2180,15 @@ export default class RFB extends EventTargetMixin {
                 break;
 
             default:
-                this._fail("Unknown init state (state: " +
-                           this._rfbInitState + ")");
+                throw "Unknown init state (state: " +
+                      this._rfbInitState + ")";
         }
     }
 
     async _handleSetColourMapMsg() {
         Log.Debug("SetColorMapEntries");
 
-        this._fail("Unexpected SetColorMapEntries message");
+        throw "Unexpected SetColorMapEntries message";
     }
 
     async _handleServerCutText() {
@@ -2358,7 +2349,7 @@ export default class RFB extends EventTargetMixin {
                         { detail: { text: textData } }));
                 }
             } else {
-                this._fail("Unexpected action in extended clipboard message: " + actions);
+                throw "Unexpected action in extended clipboard message: " + actions;
             }
         }
     }
@@ -2387,8 +2378,7 @@ export default class RFB extends EventTargetMixin {
          */
 
         if (!(flags & (1<<31))) {
-            this._fail("Unexpected fence response");
-            return;
+            throw "Unexpected fence response";
         }
 
         // Filter out unsupported flags
@@ -2416,8 +2406,7 @@ export default class RFB extends EventTargetMixin {
                 this._setCapability("power", true);
                 break;
             default:
-                this._fail("Illegal server XVP message (msg: " + xvpMsg + ")");
-                break;
+                throw "Illegal server XVP message (msg: " + xvpMsg + ")";
         }
     }
 
@@ -2472,8 +2461,7 @@ export default class RFB extends EventTargetMixin {
                 break;
 
             default:
-                this._fail("Unexpected server message (type " + msgType + ")");
-                Log.Debug("sock.rQpeekBytes(30): " + await this._sock.rQpeekBytes(30));
+                throw "Unexpected server message (type " + msgType + ")";
         }
     }
 
@@ -2734,9 +2722,7 @@ export default class RFB extends EventTargetMixin {
     async _handleDataRect(x, y, width, height, encoding) {
         let decoder = this._decoders[encoding];
         if (!decoder) {
-            this._fail("Unsupported encoding (encoding: " +
-                       encoding + ")");
-            return;
+            throw "Unsupported encoding (encoding: " + encoding + ")";
         }
 
         try {
@@ -2744,7 +2730,7 @@ export default class RFB extends EventTargetMixin {
                                      this._sock, this._display,
                                      this._fbDepth);
         } catch (err) {
-            this._fail("Error decoding rect: " + err);
+            throw "Error decoding rect: " + err;
         }
     }
 
