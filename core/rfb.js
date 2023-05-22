@@ -24,7 +24,7 @@ import Websock from "./websock.js";
 import KeyTable from "./input/keysym.js";
 import XtScancode from "./input/xtscancodes.js";
 import { encodings } from "./encodings.js";
-import RSAAESAuthenticationState from "./ra2.js";
+import { RA2Cipher } from "./ra2.js";
 import legacyCrypto from "./crypto/crypto.js";
 
 import RawDecoder from "./decoders/raw.js";
@@ -123,7 +123,6 @@ export default class RFB extends EventTargetMixin {
         this._rfbInitState = '';
         this._rfbAuthScheme = -1;
         this._rfbCleanDisconnect = true;
-        this._rfbRSAAESAuthenticationState = null;
 
         // Server capabilities
         this._rfbVersion = 0;
@@ -168,6 +167,7 @@ export default class RFB extends EventTargetMixin {
 
         // Promise functions
         this._credentialsResolve = null;
+        this._approveServerResolve = null;
 
         // Decoder states
         this._decoders = {};
@@ -204,8 +204,6 @@ export default class RFB extends EventTargetMixin {
             handleMouse: this._handleMouse.bind(this),
             handleWheel: this._handleWheel.bind(this),
             handleGesture: this._handleGesture.bind(this),
-            handleRSAAESCredentialsRequired: this._handleRSAAESCredentialsRequired.bind(this),
-            handleRSAAESServerVerification: this._handleRSAAESServerVerification.bind(this),
         };
 
         // main setup
@@ -415,14 +413,12 @@ export default class RFB extends EventTargetMixin {
         this._sock.off('error');
         this._sock.off('message');
         this._sock.off('open');
-        if (this._rfbRSAAESAuthenticationState !== null) {
-            this._rfbRSAAESAuthenticationState.disconnect();
-        }
     }
 
     approveServer() {
-        if (this._rfbRSAAESAuthenticationState !== null) {
-            this._rfbRSAAESAuthenticationState.approveServer();
+        if (this._approveServerResolve !== null) {
+            this._approveServerResolve();
+            this._approveServerResolve = null;
         }
     }
 
@@ -723,6 +719,21 @@ export default class RFB extends EventTargetMixin {
 
             await promise;
         }
+    }
+
+    async _approveServer(details) {
+        if (this._approveServerResolve != null) {
+            throw Error("Invalid concurrent server approval requests");
+        }
+
+        let promise = new Promise((resolve, reject) => {
+            this._approveServerResolve = resolve;
+        });
+
+        this.dispatchEvent(new CustomEvent(
+            "serververification", { detail: details }));
+
+        await promise;
     }
 
     _saveExpectedClientSize() {
@@ -1769,32 +1780,153 @@ export default class RFB extends EventTargetMixin {
         this._fail("No supported sub-auth types!");
     }
 
-    _handleRSAAESCredentialsRequired(event) {
-        this._getCredentials(event.detail.types)
-            .then(() => {
-                this._rfbRSAAESAuthenticationState.checkInternalEvents();
-            });
-    }
-
-    _handleRSAAESServerVerification(event) {
-        this.dispatchEvent(event);
-    }
-
     async _negotiateRA2neAuth() {
-        if (this._rfbRSAAESAuthenticationState === null) {
-            this._rfbRSAAESAuthenticationState = new RSAAESAuthenticationState(this._sock, () => this._rfbCredentials);
-            this._rfbRSAAESAuthenticationState.addEventListener(
-                "serververification", this._eventHandlers.handleRSAAESServerVerification);
-            this._rfbRSAAESAuthenticationState.addEventListener(
-                "credentialsrequired", this._eventHandlers.handleRSAAESCredentialsRequired);
+        // 1: Receive server public key
+        const serverKeyLengthBuffer = await this._sock.rQpeekBytes(4);
+        const serverKeyLength = await this._sock.rQshift32();
+        if (serverKeyLength < 1024) {
+            throw new Error("RA2: server public key is too short: " + serverKeyLength);
+        } else if (serverKeyLength > 8192) {
+            throw new Error("RA2: server public key is too long: " + serverKeyLength);
         }
-        await this._rfbRSAAESAuthenticationState.negotiateRA2neAuthAsync();
+        const serverKeyBytes = Math.ceil(serverKeyLength / 8);
+        const serverN = await this._sock.rQshiftBytes(serverKeyBytes);
+        const serverE = await this._sock.rQshiftBytes(serverKeyBytes);
+        const serverRSACipher = await legacyCrypto.importKey(
+            "raw", { n: serverN, e: serverE }, { name: "RSA-PKCS1-v1_5" }, false, ["encrypt"]);
+        const serverPublickey = new Uint8Array(4 + serverKeyBytes * 2);
+        serverPublickey.set(serverKeyLengthBuffer);
+        serverPublickey.set(serverN, 4);
+        serverPublickey.set(serverE, 4 + serverKeyBytes);
+
+        // verify server public key
+        await this._approveServer({ type: "RSA",
+                                    publickey: serverPublickey });
+
+        // 2: Send client public key
+        const clientKeyLength = 2048;
+        const clientKeyBytes = Math.ceil(clientKeyLength / 8);
+        const clientRSACipher = (await legacyCrypto.generateKey({
+            name: "RSA-PKCS1-v1_5",
+            modulusLength: clientKeyLength,
+            publicExponent: new Uint8Array([1, 0, 1]),
+        }, true, ["encrypt"])).privateKey;
+        const clientExportedRSAKey = await legacyCrypto.exportKey("raw", clientRSACipher);
+        const clientN = clientExportedRSAKey.n;
+        const clientE = clientExportedRSAKey.e;
+        const clientPublicKey = new Uint8Array(4 + clientKeyBytes * 2);
+        clientPublicKey[0] = (clientKeyLength & 0xff000000) >>> 24;
+        clientPublicKey[1] = (clientKeyLength & 0xff0000) >>> 16;
+        clientPublicKey[2] = (clientKeyLength & 0xff00) >>> 8;
+        clientPublicKey[3] = clientKeyLength & 0xff;
+        clientPublicKey.set(clientN, 4);
+        clientPublicKey.set(clientE, 4 + clientKeyBytes);
+        this._sock.sQpushBytes(clientPublicKey);
+        this._sock.flush();
+
+        // 3: Send client random
+        const clientRandom = new Uint8Array(16);
+        window.crypto.getRandomValues(clientRandom);
+        const clientEncryptedRandom = await legacyCrypto.encrypt(
+            { name: "RSA-PKCS1-v1_5" }, serverRSACipher, clientRandom);
+        const clientRandomMessage = new Uint8Array(2 + serverKeyBytes);
+        clientRandomMessage[0] = (serverKeyBytes & 0xff00) >>> 8;
+        clientRandomMessage[1] = serverKeyBytes & 0xff;
+        clientRandomMessage.set(clientEncryptedRandom, 2);
+        this._sock.sQpushBytes(clientRandomMessage);
+        this._sock.flush();
+
+        // 4: Receive server random
+        if (await this._sock.rQshift16() !== clientKeyBytes) {
+            throw new Error("RA2: wrong encrypted message length");
+        }
+        const serverEncryptedRandom = await this._sock.rQshiftBytes(clientKeyBytes);
+        const serverRandom = await legacyCrypto.decrypt(
+            { name: "RSA-PKCS1-v1_5" }, clientRSACipher, serverEncryptedRandom);
+        if (serverRandom === null || serverRandom.length !== 16) {
+            throw new Error("RA2: corrupted server encrypted random");
+        }
+
+        // 5: Compute session keys and set ciphers
+        let clientSessionKey = new Uint8Array(32);
+        let serverSessionKey = new Uint8Array(32);
+        clientSessionKey.set(serverRandom);
+        clientSessionKey.set(clientRandom, 16);
+        serverSessionKey.set(clientRandom);
+        serverSessionKey.set(serverRandom, 16);
+        clientSessionKey = await window.crypto.subtle.digest("SHA-1", clientSessionKey);
+        clientSessionKey = new Uint8Array(clientSessionKey).slice(0, 16);
+        serverSessionKey = await window.crypto.subtle.digest("SHA-1", serverSessionKey);
+        serverSessionKey = new Uint8Array(serverSessionKey).slice(0, 16);
+        const clientCipher = new RA2Cipher();
+        await clientCipher.setKey(clientSessionKey);
+        const serverCipher = new RA2Cipher();
+        await serverCipher.setKey(serverSessionKey);
+
+        // 6: Compute and exchange hashes
+        let serverHash = new Uint8Array(8 + serverKeyBytes * 2 + clientKeyBytes * 2);
+        let clientHash = new Uint8Array(8 + serverKeyBytes * 2 + clientKeyBytes * 2);
+        serverHash.set(serverPublickey);
+        serverHash.set(clientPublicKey, 4 + serverKeyBytes * 2);
+        clientHash.set(clientPublicKey);
+        clientHash.set(serverPublickey, 4 + clientKeyBytes * 2);
+        serverHash = await window.crypto.subtle.digest("SHA-1", serverHash);
+        clientHash = await window.crypto.subtle.digest("SHA-1", clientHash);
+        serverHash = new Uint8Array(serverHash);
+        clientHash = new Uint8Array(clientHash);
+        this._sock.sQpushBytes(await clientCipher.makeMessage(clientHash));
+        this._sock.flush();
+        if (await this._sock.rQshift16() !== 20) {
+            throw new Error("RA2: wrong server hash");
+        }
+        const serverHashReceived = await serverCipher.receiveMessage(
+            20, await this._sock.rQshiftBytes(20 + 16));
+        if (serverHashReceived === null) {
+            throw new Error("RA2: failed to authenticate the message");
+        }
+        for (let i = 0; i < 20; i++) {
+            if (serverHashReceived[i] !== serverHash[i]) {
+                throw new Error("RA2: wrong server hash");
+            }
+        }
+
+        // 7: Receive subtype
+        if (await this._sock.rQshift16() !== 1) {
+            throw new Error("RA2: wrong subtype");
+        }
+        let subtype = (await serverCipher.receiveMessage(
+            1, await this._sock.rQshiftBytes(1 + 16)));
+        if (subtype === null) {
+            throw new Error("RA2: failed to authenticate the message");
+        }
+        subtype = subtype[0];
+        if (subtype === 1) {
+            await this._getCredentials(["username", "password"]);
+        } else if (subtype === 2) {
+            await this._getCredentials(["password"]);
+        } else {
+            throw new Error("RA2: wrong subtype");
+        }
+        let username;
+        if (subtype === 1) {
+            username = encodeUTF8(this._rfbCredentials.username).slice(0, 255);
+        } else {
+            username = "";
+        }
+        const password = encodeUTF8(this._rfbCredentials.password).slice(0, 255);
+        const credentials = new Uint8Array(username.length + password.length + 2);
+        credentials[0] = username.length;
+        credentials[username.length + 1] = password.length;
+        for (let i = 0; i < username.length; i++) {
+            credentials[i + 1] = username.charCodeAt(i);
+        }
+        for (let i = 0; i < password.length; i++) {
+            credentials[username.length + 2 + i] = password.charCodeAt(i);
+        }
+        this._sock.sQpushBytes(await clientCipher.makeMessage(credentials));
+        this._sock.flush();
+
         this._rfbInitState = "SecurityResult";
-        this._rfbRSAAESAuthenticationState.removeEventListener(
-            "serververification", this._eventHandlers.handleRSAAESServerVerification);
-        this._rfbRSAAESAuthenticationState.removeEventListener(
-            "credentialsrequired", this._eventHandlers.handleRSAAESCredentialsRequired);
-        this._rfbRSAAESAuthenticationState = null;
     }
 
     async _negotiateMSLogonIIAuth() {
