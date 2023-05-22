@@ -2086,6 +2086,7 @@ describe('Remote Frame Buffer Protocol Client', function () {
 
                     await sendNumStrPairs([[0, 'TGHT', 'NOTUNNEL']], client);
                     client._sock._websocket._getSentData();  // skip the tunnel choice here
+
                     await sendNumStrPairs([[23, 'stdv', 'badval__']], client);
 
                     expect(callback).to.have.been.calledOnce;
