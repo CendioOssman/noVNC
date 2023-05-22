@@ -13,12 +13,6 @@ import Inflator from "../inflator.js";
 
 export default class TightDecoder {
     constructor() {
-        this._ctl = null;
-        this._filter = null;
-        this._numColors = 0;
-        this._palette = new Uint8Array(1024);  // 256 * 4 (max palette size * max bytes-per-pixel)
-        this._len = 0;
-
         this._zlibs = [];
         for (let i = 0; i < 4; i++) {
             this._zlibs[i] = new Inflator();
@@ -26,39 +20,35 @@ export default class TightDecoder {
     }
 
     async decodeRect(x, y, width, height, sock, display, depth) {
-        if (this._ctl === null) {
-            this._ctl = await sock.rQshift8();
+        let ctl = await sock.rQshift8();
 
-            // Reset streams if the server requests it
-            for (let i = 0; i < 4; i++) {
-                if ((this._ctl >> i) & 1) {
-                    this._zlibs[i].reset();
-                    Log.Info("Reset zlib stream " + i);
-                }
+        // Reset streams if the server requests it
+        for (let i = 0; i < 4; i++) {
+            if ((ctl >> i) & 1) {
+                this._zlibs[i].reset();
+                Log.Info("Reset zlib stream " + i);
             }
-
-            // Figure out filter
-            this._ctl = this._ctl >> 4;
         }
 
-        if (this._ctl === 0x08) {
+        // Figure out filter
+        ctl = ctl >> 4;
+
+        if (ctl === 0x08) {
             await this._fillRect(x, y, width, height,
                                  sock, display, depth);
-        } else if (this._ctl === 0x09) {
+        } else if (ctl === 0x09) {
             await this._jpegRect(x, y, width, height,
                                  sock, display, depth);
-        } else if (this._ctl === 0x0A) {
+        } else if (ctl === 0x0A) {
             await this._pngRect(x, y, width, height,
                                 sock, display, depth);
-        } else if ((this._ctl & 0x08) == 0) {
-            await this._basicRect(this._ctl, x, y, width, height,
+        } else if ((ctl & 0x08) == 0) {
+            await this._basicRect(ctl, x, y, width, height,
                                   sock, display, depth);
         } else {
             throw new Error("Illegal tight compression received (ctl: " +
-                                   this._ctl + ")");
+                                   ctl + ")");
         }
-
-        this._ctl = null;
     }
 
     async _fillRect(x, y, width, height, sock, display, depth) {
@@ -76,18 +66,17 @@ export default class TightDecoder {
     }
 
     async _basicRect(ctl, x, y, width, height, sock, display, depth) {
-        if (this._filter === null) {
-            if (ctl & 0x4) {
-                this._filter = await sock.rQshift8();
-            } else {
-                // Implicit CopyFilter
-                this._filter = 0;
-            }
+        let filter;
+        if (ctl & 0x4) {
+            filter = await sock.rQshift8();
+        } else {
+            // Implicit CopyFilter
+            filter = 0;
         }
 
         let streamId = ctl & 0x3;
 
-        switch (this._filter) {
+        switch (filter) {
             case 0: // CopyFilter
                 await this._copyFilter(streamId, x, y, width, height,
                                        sock, display, depth);
@@ -104,8 +93,6 @@ export default class TightDecoder {
                 throw new Error("Illegal tight filter received (ctl: " +
                                        this._filter + ")");
         }
-
-        this._filter = null;
     }
 
     async _copyFilter(streamId, x, y, width, height, sock, display, depth) {
@@ -138,17 +125,12 @@ export default class TightDecoder {
     }
 
     async _paletteFilter(streamId, x, y, width, height, sock, display, depth) {
-        if (this._numColors === 0) {
-            const numColors = await sock.rQpeek8() + 1;
-            const paletteSize = numColors * 3;
+        const numColors = await sock.rQshift8() + 1;
+        const paletteSize = numColors * 3;
 
-            this._numColors = numColors;
-            await sock.rQskipBytes(1);
+        const palette = await sock.rQshiftBytes(paletteSize);
 
-            await sock.rQshiftTo(this._palette, paletteSize);
-        }
-
-        const bpp = (this._numColors <= 2) ? 1 : 8;
+        const bpp = (numColors <= 2) ? 1 : 8;
         const rowSize = Math.floor((width * bpp + 7) / 8);
         const uncompressedSize = rowSize * height;
 
@@ -169,10 +151,10 @@ export default class TightDecoder {
         }
 
         // Convert indexed (palette based) image data to RGB
-        if (this._numColors == 2) {
-            this._monoRect(x, y, width, height, data, this._palette, display);
+        if (numColors == 2) {
+            this._monoRect(x, y, width, height, data, palette, display);
         } else {
-            this._paletteRect(x, y, width, height, data, this._palette, display);
+            this._paletteRect(x, y, width, height, data, palette, display);
         }
 
         this._numColors = 0;
@@ -231,25 +213,18 @@ export default class TightDecoder {
     }
 
     async _readData(sock) {
-        if (this._len === 0) {
-            let byte;
-
+        let byte = await sock.rQshift8();
+        let len = byte & 0x7f;
+        if (byte & 0x80) {
             byte = await sock.rQshift8();
-            this._len = byte & 0x7f;
+            len |= (byte & 0x7f) << 7;
             if (byte & 0x80) {
                 byte = await sock.rQshift8();
-                this._len |= (byte & 0x7f) << 7;
-                if (byte & 0x80) {
-                    byte = await sock.rQshift8();
-                    this._len |= byte << 14;
-                }
+                len |= byte << 14;
             }
         }
 
-        let data = await sock.rQshiftBytes(this._len, false);
-        this._len = 0;
-
-        return data;
+        return await sock.rQshiftBytes(len, false);
     }
 
     _getScratchBuffer(size) {

@@ -13,15 +13,14 @@ export default class JPEGDecoder {
         // and Huffman tables, so we need to cache them.
         this._cachedQuantTables = [];
         this._cachedHuffmanTables = [];
-
-        this._segments = [];
     }
 
     async decodeRect(x, y, width, height, sock, display, depth) {
         // A rect of JPEG encodings is simply a JPEG file
+        let segments = [];
         while (true) {
             let segment = await this._readSegment(sock);
-            this._segments.push(segment);
+            segments.push(segment);
             // End of image?
             if (segment[1] === 0xD9) {
                 break;
@@ -30,7 +29,7 @@ export default class JPEGDecoder {
 
         let huffmanTables = [];
         let quantTables = [];
-        for (let segment of this._segments) {
+        for (let segment of segments) {
             let type = segment[1];
             if (type === 0xC4) {
                 // Huffman tables
@@ -41,7 +40,7 @@ export default class JPEGDecoder {
             }
         }
 
-        const sofIndex = this._segments.findIndex(
+        const sofIndex = segments.findIndex(
             x => x[1] == 0xC0 || x[1] == 0xC2
         );
         if (sofIndex == -1) {
@@ -49,22 +48,22 @@ export default class JPEGDecoder {
         }
 
         if (quantTables.length === 0) {
-            this._segments.splice(sofIndex+1, 0,
-                                  ...this._cachedQuantTables);
+            segments.splice(sofIndex+1, 0,
+                            ...this._cachedQuantTables);
         }
         if (huffmanTables.length === 0) {
-            this._segments.splice(sofIndex+1, 0,
-                                  ...this._cachedHuffmanTables);
+            segments.splice(sofIndex+1, 0,
+                            ...this._cachedHuffmanTables);
         }
 
         let length = 0;
-        for (let segment of this._segments) {
+        for (let segment of segments) {
             length += segment.length;
         }
 
         let data = new Uint8Array(length);
         length = 0;
-        for (let segment of this._segments) {
+        for (let segment of segments) {
             data.set(segment, length);
             length += segment.length;
         }
@@ -77,8 +76,6 @@ export default class JPEGDecoder {
         if (quantTables.length !== 0) {
             this._cachedQuantTables = quantTables;
         }
-
-        this._segments = [];
     }
 
     async _readSegment(sock) {

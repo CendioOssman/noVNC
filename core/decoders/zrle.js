@@ -14,7 +14,6 @@ const ZRLE_TILE_HEIGHT = 64;
 
 export default class ZRLEDecoder {
     constructor() {
-        this._length = 0;
         this._inflator = new Inflate();
 
         this._pixelBuffer = new Uint8Array(ZRLE_TILE_WIDTH * ZRLE_TILE_HEIGHT * 4);
@@ -22,11 +21,8 @@ export default class ZRLEDecoder {
     }
 
     async decodeRect(x, y, width, height, sock, display, depth) {
-        if (this._length === 0) {
-            this._length = await sock.rQshift32();
-        }
-
-        const data = await sock.rQshiftBytes(this._length, false);
+        let length = await sock.rQshift32();
+        let data = await sock.rQshiftBytes(length, false);
 
         this._inflator.setInput(data);
 
@@ -60,7 +56,6 @@ export default class ZRLEDecoder {
                 }
             }
         }
-        this._length = 0;
     }
 
     _getBitsPerPixelInPalette(paletteSize) {

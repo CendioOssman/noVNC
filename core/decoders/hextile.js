@@ -11,40 +11,36 @@ import * as Log from '../util/logging.js';
 
 export default class HextileDecoder {
     constructor() {
-        this._tiles = 0;
-        this._lastsubencoding = 0;
         this._tileBuffer = new Uint8Array(16 * 16 * 4);
     }
 
     async decodeRect(x, y, width, height, sock, display, depth) {
-        if (this._tiles === 0) {
-            this._tilesX = Math.ceil(width / 16);
-            this._tilesY = Math.ceil(height / 16);
-            this._totalTiles = this._tilesX * this._tilesY;
-            this._tiles = this._totalTiles;
-        }
+        let tilesX = Math.ceil(width / 16);
+        let tilesY = Math.ceil(height / 16);
+        let totalTiles = tilesX * tilesY;
 
-        while (this._tiles > 0) {
+        let foreground, background;
+        let lastSubEncoding = 0;
+        for (let currTile = 0;currTile < totalTiles;currTile++) {
             let subencoding = await sock.rQshift8();
             if (subencoding > 30) {  // Raw
                 throw new Error("Illegal hextile subencoding (subencoding: " +
                             subencoding + ")");
             }
 
-            const currTile = this._totalTiles - this._tiles;
-            const tileX = currTile % this._tilesX;
-            const tileY = Math.floor(currTile / this._tilesX);
+            const tileX = currTile % tilesX;
+            const tileY = Math.floor(currTile / tilesX);
             const tx = x + tileX * 16;
             const ty = y + tileY * 16;
             const tw = Math.min(16, (x + width) - tx);
             const th = Math.min(16, (y + height) - ty);
 
             if (subencoding === 0) {
-                if (this._lastsubencoding & 0x01) {
+                if (lastSubEncoding & 0x01) {
                     // Weird: ignore blanks are RAW
                     Log.Debug("     Ignoring blank after RAW");
                 } else {
-                    display.fillRect(tx, ty, tw, th, this._background);
+                    display.fillRect(tx, ty, tw, th, background);
                 }
             } else if (subencoding & 0x01) {  // Raw
                 let pixels = tw * th;
@@ -56,13 +52,20 @@ export default class HextileDecoder {
                 display.blitImage(tx, ty, tw, th, data, 0);
             } else {
                 if (subencoding & 0x02) {  // Background
-                    this._background = new Uint8Array(await sock.rQshiftBytes(4));
+                    background = new Uint8Array(await sock.rQshiftBytes(4));
                 }
                 if (subencoding & 0x04) {  // Foreground
-                    this._foreground = new Uint8Array(await sock.rQshiftBytes(4));
+                    foreground = new Uint8Array(await sock.rQshiftBytes(4));
                 }
 
-                this._startTile(tx, ty, tw, th, this._background);
+                const data = this._tileBuffer;
+                for (let i = 0; i < tw * th * 4; i += 4) {
+                    data[i]     = background[0];
+                    data[i + 1] = background[1];
+                    data[i + 2] = background[2];
+                    data[i + 3] = 255;
+                }
+
                 if (subencoding & 0x08) {  // AnySubrects
                     let subrects = await sock.rQshift8();
 
@@ -71,7 +74,7 @@ export default class HextileDecoder {
                         if (subencoding & 0x10) {  // SubrectsColoured
                             color = await sock.rQshiftBytes(4);
                         } else {
-                            color = this._foreground;
+                            color = foreground;
                         }
                         const xy = await sock.rQshift8();
                         const sx = (xy >> 4);
@@ -81,61 +84,22 @@ export default class HextileDecoder {
                         const sw = (wh >> 4) + 1;
                         const sh = (wh & 0x0f) + 1;
 
-                        this._subTile(sx, sy, sw, sh, color);
+                        const data = this._tileBuffer;
+                        for (let j = sy; j < sy + sh; j++) {
+                            for (let i = sx; i < sx + sw; i++) {
+                                const p = (i + (j * tw)) * 4;
+                                data[p]     = color[0];
+                                data[p + 1] = color[1];
+                                data[p + 2] = color[2];
+                                data[p + 3] = 255;
+                            }
+                        }
                     }
                 }
-                this._finishTile(display);
+
+                display.blitImage(tx, ty, tw, th, this._tileBuffer, 0);
             }
-            this._lastsubencoding = subencoding;
-            this._tiles--;
+            lastSubEncoding = subencoding;
         }
-    }
-
-    // start updating a tile
-    _startTile(x, y, width, height, color) {
-        this._tileX = x;
-        this._tileY = y;
-        this._tileW = width;
-        this._tileH = height;
-
-        const red = color[0];
-        const green = color[1];
-        const blue = color[2];
-
-        const data = this._tileBuffer;
-        for (let i = 0; i < width * height * 4; i += 4) {
-            data[i]     = red;
-            data[i + 1] = green;
-            data[i + 2] = blue;
-            data[i + 3] = 255;
-        }
-    }
-
-    // update sub-rectangle of the current tile
-    _subTile(x, y, w, h, color) {
-        const red = color[0];
-        const green = color[1];
-        const blue = color[2];
-        const xend = x + w;
-        const yend = y + h;
-
-        const data = this._tileBuffer;
-        const width = this._tileW;
-        for (let j = y; j < yend; j++) {
-            for (let i = x; i < xend; i++) {
-                const p = (i + (j * width)) * 4;
-                data[p]     = red;
-                data[p + 1] = green;
-                data[p + 2] = blue;
-                data[p + 3] = 255;
-            }
-        }
-    }
-
-    // draw the current tile to the screen
-    _finishTile(display) {
-        display.blitImage(this._tileX, this._tileY,
-                          this._tileW, this._tileH,
-                          this._tileBuffer, 0);
     }
 }
