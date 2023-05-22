@@ -2799,30 +2799,6 @@ describe('Remote Frame Buffer Protocol Client', function () {
                         client._cursor.change.resetHistory();
                     });
 
-                    it('should handle the VMware cursor pseudo-encoding', async function () {
-                        let data = [0x00, 0x00, 0xff, 0,
-                                    0x00, 0xff, 0x00, 0,
-                                    0x00, 0xff, 0x00, 0,
-                                    0x00, 0x00, 0xff, 0];
-                        let rect = [];
-                        push8(rect, 0);
-                        push8(rect, 0);
-
-                        //AND-mask
-                        for (let i = 0; i < data.length; i++) {
-                            push8(rect, data[i]);
-                        }
-                        //XOR-mask
-                        for (let i = 0; i < data.length; i++) {
-                            push8(rect, data[i]);
-                        }
-
-                        await sendFbuMsg([{ x: 0, y: 0, width: 2, height: 2,
-                                            encoding: 0x574d5664}],
-                                         [rect], client);
-                        expect(client._FBU.rects).to.equal(0);
-                    });
-
                     it('should update the cursor when type is classic', async function () {
                         let andMask =
                             [0xff, 0xff, 0xff, 0xff,  //Transparent

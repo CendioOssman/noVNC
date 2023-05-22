@@ -172,15 +172,6 @@ export default class RFB extends EventTargetMixin {
         // Decoder states
         this._decoders = {};
 
-        this._FBU = {
-            rects: 0,
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
-            encoding: null,
-        };
-
         // Mouse state
         this._mousePos = {};
         this._mouseButtonMask = 0;
@@ -2431,12 +2422,7 @@ export default class RFB extends EventTargetMixin {
     }
 
     async _normalMsg() {
-        let msgType;
-        if (this._FBU.rects > 0) {
-            msgType = 0;
-        } else {
-            msgType = await this._sock.rQshift8();
-        }
+        let msgType = await this._sock.rQshift8();
 
         let first;
         switch (msgType) {
@@ -2492,51 +2478,44 @@ export default class RFB extends EventTargetMixin {
     }
 
     async _framebufferUpdate() {
-        if (this._FBU.rects === 0) {
-            await this._sock.rQskipBytes(1);  // Padding
-            this._FBU.rects = await this._sock.rQshift16();
+        await this._sock.rQskipBytes(1);  // Padding
+        let rects = await this._sock.rQshift16();
 
-            // Make sure the previous frame is fully rendered first
-            // to avoid building up an excessive queue
-            if (this._display.pending()) {
-                await this._display.flush();
-            }
+        // Make sure the previous frame is fully rendered first
+        // to avoid building up an excessive queue
+        if (this._display.pending()) {
+            await this._display.flush();
         }
 
-        while (this._FBU.rects > 0) {
-            if (this._FBU.encoding === null) {
-                /* New FramebufferUpdate */
+        while (rects > 0) {
+            let x = await this._sock.rQshift16();
+            let y = await this._sock.rQshift16();
+            let width = await this._sock.rQshift16();
+            let height = await this._sock.rQshift16();
+            let encoding = await this._sock.rQshift32();
+            /* Encodings are signed */
+            encoding >>= 0;
 
-                this._FBU.x = await this._sock.rQshift16();
-                this._FBU.y = await this._sock.rQshift16();
-                this._FBU.width = await this._sock.rQshift16();
-                this._FBU.height = await this._sock.rQshift16();
-                this._FBU.encoding = await this._sock.rQshift32();
-                /* Encodings are signed */
-                this._FBU.encoding >>= 0;
+            if (encoding === encodings.pseudoEncodingLastRect) {
+                break;
             }
 
-            await this._handleRect();
+            await this._handleRect(x, y, width, height, encoding);
 
-            this._FBU.rects--;
-            this._FBU.encoding = null;
+            rects--;
         }
 
         this._display.flip();
     }
 
-    async _handleRect() {
-        switch (this._FBU.encoding) {
-            case encodings.pseudoEncodingLastRect:
-                this._FBU.rects = 1; // Will be decreased when we return
-                break;
-
+    async _handleRect(x, y, width, height, encoding) {
+        switch (encoding) {
             case encodings.pseudoEncodingVMwareCursor:
-                await this._handleVMwareCursor();
+                await this._handleVMwareCursor(x, y, width, height);
                 break;
 
             case encodings.pseudoEncodingCursor:
-                await this._handleCursor();
+                await this._handleCursor(x, y, width, height);
                 break;
 
             case encodings.pseudoEncodingQEMUExtendedKeyEvent:
@@ -2548,24 +2527,19 @@ export default class RFB extends EventTargetMixin {
                 break;
 
             case encodings.pseudoEncodingDesktopSize:
-                this._resize(this._FBU.width, this._FBU.height);
+                this._resize(width, height);
                 break;
 
             case encodings.pseudoEncodingExtendedDesktopSize:
-                await this._handleExtendedDesktopSize();
+                await this._handleExtendedDesktopSize(x, y, width, height);
                 break;
 
             default:
-                await this._handleDataRect();
+                await this._handleDataRect(x, y, width, height, encoding);
         }
     }
 
-    async _handleVMwareCursor() {
-        const hotx = this._FBU.x;  // hotspot-x
-        const hoty = this._FBU.y;  // hotspot-y
-        const w = this._FBU.width;
-        const h = this._FBU.height;
-
+    async _handleVMwareCursor(hotx, hoty, w, h) {
         const cursorType = await this._sock.rQshift8();
 
         await this._sock.rQshift8(); //Padding
@@ -2661,12 +2635,7 @@ export default class RFB extends EventTargetMixin {
         this._updateCursor(rgba, hotx, hoty, w, h);
     }
 
-    async _handleCursor() {
-        const hotx = this._FBU.x;  // hotspot-x
-        const hoty = this._FBU.y;  // hotspot-y
-        const w = this._FBU.width;
-        const h = this._FBU.height;
-
+    async _handleCursor(hotx, hoty, w, h) {
         const pixelslength = w * h * 4;
         const masklength = Math.ceil(w / 8) * h;
 
@@ -2698,7 +2667,7 @@ export default class RFB extends EventTargetMixin {
         this._setDesktopName(name);
     }
 
-    async _handleExtendedDesktopSize() {
+    async _handleExtendedDesktopSize(x, y, width, height) {
         const numberOfScreens = await this._sock.rQpeek8();
 
         const firstUpdate = !this._supportsSetDesktopSize;
@@ -2730,10 +2699,10 @@ export default class RFB extends EventTargetMixin {
          */
 
         // We need to handle errors when we requested the resize.
-        if (this._FBU.x === 1 && this._FBU.y !== 0) {
+        if (x === 1 && y !== 0) {
             let msg = "";
             // The y-position indicates the status code from the server
-            switch (this._FBU.y) {
+            switch (y) {
                 case 1:
                     msg = "Resize is administratively prohibited";
                     break;
@@ -2750,7 +2719,7 @@ export default class RFB extends EventTargetMixin {
             Log.Warn("Server did not accept the resize request: "
                      + msg);
         } else {
-            this._resize(this._FBU.width, this._FBU.height);
+            this._resize(width, height);
         }
 
         // Normally we only apply the current resize mode after a
@@ -2762,17 +2731,16 @@ export default class RFB extends EventTargetMixin {
         }
     }
 
-    async _handleDataRect() {
-        let decoder = this._decoders[this._FBU.encoding];
+    async _handleDataRect(x, y, width, height, encoding) {
+        let decoder = this._decoders[encoding];
         if (!decoder) {
             this._fail("Unsupported encoding (encoding: " +
-                       this._FBU.encoding + ")");
+                       encoding + ")");
             return;
         }
 
         try {
-            await decoder.decodeRect(this._FBU.x, this._FBU.y,
-                                     this._FBU.width, this._FBU.height,
+            await decoder.decodeRect(x, y, width, height,
                                      this._sock, this._display,
                                      this._fbDepth);
         } catch (err) {
