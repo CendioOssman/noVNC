@@ -23,6 +23,15 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
       - run: npm update
-      - run: npm run test
+      - run: |
+          npm run test -- --reporters mocha,junit
+          mv TESTS-*.xml test-results.xml
         env:
           TEST_BROWSER_NAME: ${{ matrix.browser }}
+      - uses: phoenix-actions/test-reporting@v12
+        if: success() || failure()
+        with:
+          name: ${{ matrix.browser }} on ${{ matrix.os }}
+          reporter: java-junit
+          path: test-results.xml
+          output-to: step-summary

@@ -59,6 +59,7 @@
     "@chiragrupani/karma-chromium-edge-launcher": "latest",
     "karma-firefox-launcher": "latest",
     "karma-ie-launcher": "latest",
+    "karma-junit-reporter": "latest",
     "karma-mocha-reporter": "latest",
     "karma-safari-launcher": "latest",
     "karma-script-launcher": "latest",
