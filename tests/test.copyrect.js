@@ -78,6 +78,8 @@ describe('CopyRect Decoder', function () {
         ]);
 
         expect(display).to.have.displayed(targetData);
+
+        console.error("z");
     });
 
     it('should handle empty rects', function () {
