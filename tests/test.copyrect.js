@@ -43,9 +43,9 @@ describe('CopyRect Decoder', function () {
         display = new Display(document.createElement('canvas'));
         console.error("B");
         decoder = new CopyRectDecoder();
-        /*
         console.error("C");
         display.resize(4, 4);
+        /*
         */
         console.error("D");
     });
