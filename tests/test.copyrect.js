@@ -42,10 +42,10 @@ describe('CopyRect Decoder', function () {
         console.error("A");
         display = new Display(document.createElement('canvas'));
         console.error("B");
-        decoder = new CopyRectDecoder();
-        console.error("C");
         display.resize(4, 4);
         /*
+        console.error("C");
+        decoder = new CopyRectDecoder();
         */
         console.error("D");
     });
