@@ -42,15 +42,19 @@ describe('CopyRect Decoder', function () {
         console.error("A");
         display = new Display(document.createElement('canvas'));
         console.error("B");
-        display.resize(4, 4);
         /*
+        display.resize(4, 4);
         console.error("C");
         decoder = new CopyRectDecoder();
-        */
         console.error("D");
+        */
     });
 
     it('should handle the CopyRect encoding', function () {
+        console.error("x");
+        display.resize(4, 4);
+        console.error("y");
+
         // seed some initial data to copy
         display.fillRect(0, 0, 4, 4, [ 0x11, 0x22, 0x33 ]);
         display.fillRect(0, 0, 2, 2, [ 0x00, 0x00, 0xff ]);
@@ -77,6 +81,10 @@ describe('CopyRect Decoder', function () {
     });
 
     it('should handle empty rects', function () {
+        console.error("1");
+        display.resize(4, 4);
+        console.error("2");
+
         display.fillRect(0, 0, 4, 4, [ 0x00, 0x00, 0xff ]);
         display.fillRect(2, 0, 2, 2, [ 0x00, 0xff, 0x00 ]);
         display.fillRect(0, 2, 2, 2, [ 0x00, 0xff, 0x00 ]);
