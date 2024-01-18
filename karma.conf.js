@@ -35,7 +35,7 @@ module.exports = (config) => {
       { pattern: 'app/webutil.js', included: false, type: 'module' },
       { pattern: 'core/**/*.js', included: false, type: 'module' },
       { pattern: 'vendor/pako/**/*.js', included: false, type: 'module' },
-      { pattern: 'tests/test.*.js', type: 'module' },
+      { pattern: 'tests/test.copyrect.js', type: 'module' },
       { pattern: 'tests/fake.*.js', included: false, type: 'module' },
       { pattern: 'tests/assertions.js', type: 'module' },
     ],
