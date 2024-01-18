@@ -40,10 +40,10 @@ describe('CopyRect Decoder', function () {
 
     beforeEach(function () {
         console.error("A");
-        /*
-        decoder = new CopyRectDecoder();
-        console.error("B");
         display = new Display(document.createElement('canvas'));
+        /*
+        console.error("B");
+        decoder = new CopyRectDecoder();
         console.error("C");
         display.resize(4, 4);
         */
