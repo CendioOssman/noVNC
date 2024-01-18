@@ -45,9 +45,9 @@ describe('CopyRect Decoder', function () {
         /*
         display.resize(4, 4);
         console.error("C");
+        */
         decoder = new CopyRectDecoder();
         console.error("D");
-        */
     });
 
     it('should handle the CopyRect encoding', function () {
