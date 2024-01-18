@@ -39,9 +39,13 @@ describe('CopyRect Decoder', function () {
     after(FakeWebSocket.restore);
 
     beforeEach(function () {
+        console.error("A");
         decoder = new CopyRectDecoder();
+        console.error("B");
         display = new Display(document.createElement('canvas'));
+        console.error("C");
         display.resize(4, 4);
+        console.error("D");
     });
 
     it('should handle the CopyRect encoding', function () {
