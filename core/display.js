@@ -203,31 +203,22 @@ export default class Display {
 
             console.error("r3", performance.now());
             console.error(canvas.width, canvas.height, width, height);
-            // We have to save the canvas data since changing the size will clear it
-            let saveImg = null;
-            if (canvas.width > 0 && canvas.height > 0) {
-                saveImg = document.createElement('canvas');
-                let saveCtx = saveImg.getContext('2d',
-                                             { alpha: false,
-                                               desynchronized: true });
-                saveCtx.drawImage(canvas, 0, 0);
-                //saveImg = this._drawCtx.getImageData(0, 0, canvas.width, canvas.height);
-            }
 
             console.error("r4", performance.now());
 
-            if (canvas.width !== width) {
-                canvas.width = width;
-            }
-            if (canvas.height !== height) {
-                canvas.height = height;
-            }
+            this._backbuffer = document.createElement('canvas');
+            this._backbuffer.width = width;
+            this._backbuffer.height = height;
+            this._drawCtx = this._backbuffer.getContext('2d',
+                                                        { alpha: false,
+                                                          desynchronized: true,
+                                                          willReadFrequently: false });
 
             console.error("r5", performance.now());
 
-            if (saveImg) {
-                this._drawCtx.drawImage(saveImg, 0, 0);
-                //this._drawCtx.putImageData(saveImg, 0, 0);
+            // We have to save the canvas data since changing the size will clear it
+            if (canvas.width > 0 && canvas.height > 0) {
+                this._drawCtx.drawImage(canvas, 0, 0);
             }
         }
 
