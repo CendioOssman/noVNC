@@ -187,19 +187,25 @@ export default class Display {
     }
 
     resize(width, height) {
+        console.error("r1", performance.now());
         this._prevDrawStyle = "";
 
         this._fbWidth = width;
         this._fbHeight = height;
 
+        console.error("r2", performance.now());
         const canvas = this._backbuffer;
         if (canvas.width !== width || canvas.height !== height) {
 
+            console.error("r3", performance.now());
+            console.error(canvas.width, canvas.height, width, height);
             // We have to save the canvas data since changing the size will clear it
             let saveImg = null;
             if (canvas.width > 0 && canvas.height > 0) {
                 saveImg = this._drawCtx.getImageData(0, 0, canvas.width, canvas.height);
             }
+
+            console.error("r4", performance.now());
 
             if (canvas.width !== width) {
                 canvas.width = width;
@@ -208,16 +214,22 @@ export default class Display {
                 canvas.height = height;
             }
 
+            console.error("r5", performance.now());
+
             if (saveImg) {
                 this._drawCtx.putImageData(saveImg, 0, 0);
             }
         }
 
+        console.error("r6", performance.now());
+
         // Readjust the viewport as it may be incorrectly sized
         // and positioned
         const vp = this._viewportLoc;
         this.viewportChangeSize(vp.w, vp.h);
+        console.error("r7", performance.now());
         this.viewportChangePos(0, 0);
+        console.error("r8", performance.now());
     }
 
     getImageData() {
