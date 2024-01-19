@@ -206,7 +206,12 @@ export default class Display {
             // We have to save the canvas data since changing the size will clear it
             let saveImg = null;
             if (canvas.width > 0 && canvas.height > 0) {
-                saveImg = this._drawCtx.getImageData(0, 0, canvas.width, canvas.height);
+                saveImg = document.createElement('canvas');
+                let saveCtx = saveImg.getContext('2d',
+                                             { alpha: false,
+                                               desynchronized: true });
+                saveCtx.drawImage(canvas, 0, 0);
+                //saveImg = this._drawCtx.getImageData(0, 0, canvas.width, canvas.height);
             }
 
             console.error("r4", performance.now());
@@ -221,7 +226,8 @@ export default class Display {
             console.error("r5", performance.now());
 
             if (saveImg) {
-                this._drawCtx.putImageData(saveImg, 0, 0);
+                this._drawCtx.drawImage(saveImg, 0, 0);
+                //this._drawCtx.putImageData(saveImg, 0, 0);
             }
         }
 
