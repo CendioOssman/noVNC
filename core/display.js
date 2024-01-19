@@ -51,7 +51,7 @@ export default class Display {
         this._drawCtx = this._backbuffer.getContext('2d',
                                                     { alpha: false,
                                                       desynchronized: true,
-                                                      willReadFrequently: false });
+                                                      willReadFrequently: true });
 
         this._damageBounds = { left: 0, top: 0,
                                right: this._backbuffer.width,
@@ -212,7 +212,7 @@ export default class Display {
             this._drawCtx = this._backbuffer.getContext('2d',
                                                         { alpha: false,
                                                           desynchronized: true,
-                                                          willReadFrequently: false });
+                                                          willReadFrequently: true });
 
             console.error("r5", performance.now());
 
