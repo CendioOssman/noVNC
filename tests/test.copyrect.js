@@ -39,21 +39,21 @@ describe('CopyRect Decoder', function () {
     after(FakeWebSocket.restore);
 
     beforeEach(function () {
-        console.error("A");
+        console.error("A", performance.now());
         display = new Display(document.createElement('canvas'));
-        console.error("B");
+        console.error("B", performance.now());
         /*
         display.resize(4, 4);
-        console.error("C");
+        console.error("C", performance.now());
         */
         decoder = new CopyRectDecoder();
-        console.error("D");
+        console.error("D", performance.now());
     });
 
     it('should handle the CopyRect encoding', function () {
-        console.error("x");
+        console.error("x", performance.now());
         display.resize(4, 4);
-        console.error("y");
+        console.error("y", performance.now());
 
         // seed some initial data to copy
         display.fillRect(0, 0, 4, 4, [ 0x11, 0x22, 0x33 ]);
@@ -79,13 +79,13 @@ describe('CopyRect Decoder', function () {
 
         expect(display).to.have.displayed(targetData);
 
-        console.error("z");
+        console.error("z", performance.now());
     });
 
     it('should handle empty rects', function () {
-        console.error("1");
+        console.error("1", performance.now());
         display.resize(4, 4);
-        console.error("2");
+        console.error("2", performance.now());
 
         display.fillRect(0, 0, 4, 4, [ 0x00, 0x00, 0xff ]);
         display.fillRect(2, 0, 2, 2, [ 0x00, 0xff, 0x00 ]);
