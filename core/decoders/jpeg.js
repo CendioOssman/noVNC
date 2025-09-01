@@ -1,6 +1,6 @@
 /*
  * noVNC: HTML5 VNC client
- * Copyright (C) 2019 The noVNC authors
+ * Copyright (C) 2019-2025 The noVNC authors
  * Licensed under MPL 2.0 (see LICENSE.txt)
  *
  * See README.md for usage and integration instructions.
@@ -11,8 +11,10 @@ export default class JPEGDecoder {
     constructor() {
         // RealVNC will reuse the quantization tables
         // and Huffman tables, so we need to cache them.
-        this._cachedQuantTables = [];
-        this._cachedHuffmanTables = [];
+        this._cachedQuantTables = new Uint8Array(1024);
+        this._cachedQuantTablesLen = 0;
+        this._cachedHuffmanTables = new Uint8Array(1024);
+        this._cachedHuffmanTablesLen = 0;
 
         this._segments = [];
     }
@@ -31,16 +33,51 @@ export default class JPEGDecoder {
             }
         }
 
-        let huffmanTables = [];
-        let quantTables = [];
+        let seenQuantTables = false;
+        let seenHuffmanTables = false;
+
         for (let segment of this._segments) {
             let type = segment[1];
             if (type === 0xC4) {
                 // Huffman tables
-                huffmanTables.push(segment);
+                if (!seenHuffmanTables) {
+                    seenHuffmanTables = true;
+                    this._cachedHuffmanTablesLen = 0;
+                }
+
+                if ((this._cachedHuffmanTablesLen + segment.length) >
+                    this._cachedHuffmanTables.length) {
+                    let newLen = this._cachedHuffmanTables.length * 2;
+                    while (newLen < (this._cachedHuffmanTablesLen + segment.length)) {
+                        newLen *= 2;
+                    }
+                    let newTable = new Uint8Array(newLen);
+                    newTable.set(this._cachedHuffmanTables.subarray(0, this._cachedHuffmanTablesLen));
+                    this._cachedHuffmanTables = newTable;
+                }
+
+                this._cachedHuffmanTables.set(segment, this._cachedHuffmanTablesLen);
+                this._cachedHuffmanTablesLen += segment.length;
             } else if (type === 0xDB) {
                 // Quantization tables
-                quantTables.push(segment);
+                if (!seenQuantTables) {
+                    seenQuantTables = true;
+                    this._cachedQuantTablesLen = 0;
+                }
+
+                if ((this._cachedQuantTablesLen + segment.length) >
+                    this._cachedQuantTables.length) {
+                    let newLen = this._cachedQuantTables.length * 2;
+                    while (newLen < (this._cachedQuantTablesLen + segment.length)) {
+                        newLen *= 2;
+                    }
+                    let newTable = new Uint8Array(newLen);
+                    newTable.set(this._cachedQuantTables.subarray(0, this._cachedQuantTablesLen));
+                    this._cachedQuantTables = newTable;
+                }
+
+                this._cachedQuantTables.set(segment, this._cachedQuantTablesLen);
+                this._cachedQuantTablesLen += segment.length;
             }
         }
 
@@ -51,13 +88,13 @@ export default class JPEGDecoder {
             throw new Error("Illegal JPEG image without SOF");
         }
 
-        if (quantTables.length === 0) {
+        if (!seenQuantTables) {
             this._segments.splice(sofIndex+1, 0,
-                                  ...this._cachedQuantTables);
+                                  this._cachedQuantTables);
         }
-        if (huffmanTables.length === 0) {
+        if (!seenHuffmanTables) {
             this._segments.splice(sofIndex+1, 0,
-                                  ...this._cachedHuffmanTables);
+                                  this._cachedHuffmanTables);
         }
 
         let length = 0;
@@ -73,13 +110,6 @@ export default class JPEGDecoder {
         }
 
         display.imageRect(x, y, width, height, "image/jpeg", data);
-
-        if (huffmanTables.length !== 0) {
-            this._cachedHuffmanTables = huffmanTables;
-        }
-        if (quantTables.length !== 0) {
-            this._cachedQuantTables = quantTables;
-        }
 
         this._segments = [];
 
