@@ -16,7 +16,11 @@ export default class JPEGDecoder {
         this._cachedHuffmanTables = new Uint8Array(1024);
         this._cachedHuffmanTablesLen = 0;
 
-        this._segments = [];
+        this._seenQuantTables = false;
+        this._seenHuffmanTables = false;
+
+        this._imageData = new Uint8Array(65536);
+        this._imageDataLen = 0;
     }
 
     decodeRect(x, y, width, height, sock, display, depth) {
@@ -26,22 +30,13 @@ export default class JPEGDecoder {
             if (segment === null) {
                 return false;
             }
-            this._segments.push(segment);
-            // End of image?
-            if (segment[1] === 0xD9) {
-                break;
-            }
-        }
 
-        let seenQuantTables = false;
-        let seenHuffmanTables = false;
-
-        for (let segment of this._segments) {
             let type = segment[1];
+
             if (type === 0xC4) {
                 // Huffman tables
-                if (!seenHuffmanTables) {
-                    seenHuffmanTables = true;
+                if (!this._seenHuffmanTables) {
+                    this._seenHuffmanTables = true;
                     this._cachedHuffmanTablesLen = 0;
                 }
 
@@ -60,8 +55,8 @@ export default class JPEGDecoder {
                 this._cachedHuffmanTablesLen += segment.length;
             } else if (type === 0xDB) {
                 // Quantization tables
-                if (!seenQuantTables) {
-                    seenQuantTables = true;
+                if (!this._seenQuantTables) {
+                    this._seenQuantTables = true;
                     this._cachedQuantTablesLen = 0;
                 }
 
@@ -79,39 +74,70 @@ export default class JPEGDecoder {
                 this._cachedQuantTables.set(segment, this._cachedQuantTablesLen);
                 this._cachedQuantTablesLen += segment.length;
             }
+
+            if (type === 0xDA) {
+                // Start of image data, time to inject any missing tables
+                if (!this._seenQuantTables) {
+                    if ((this._imageDataLen + this._cachedQuantTablesLen) >
+                        this._imageData.length) {
+                        let newLen = this._imageData.length * 2;
+                        while (newLen < (this._imageDataLen + this._cachedQuantTablesLen)) {
+                            newLen *= 2;
+                        }
+                        let newData = new Uint8Array(newLen);
+                        newData.set(this._imageData.subarray(0, this._imageDataLen));
+                        this._imageData = newData;
+                    }
+
+                    this._imageData.set(this._cachedQuantTables.subarray(0, this._cachedQuantTablesLen),
+                                        this._imageDataLen);
+                    this._imageDataLen += this._cachedQuantTablesLen;
+                }
+                if (!this._seenHuffmanTables) {
+                    if ((this._imageDataLen + this._cachedHuffmanTablesLen) >
+                        this._imageData.length) {
+                        let newLen = this._imageData.length * 2;
+                        while (newLen < (this._imageDataLen + this._cachedHuffmanTablesLen)) {
+                            newLen *= 2;
+                        }
+                        let newData = new Uint8Array(newLen);
+                        newData.set(this._imageData.subarray(0, this._imageDataLen));
+                        this._imageData = newData;
+                    }
+
+                    this._imageData.set(this._cachedHuffmanTables.subarray(0, this._cachedHuffmanTablesLen),
+                                        this._imageDataLen);
+                    this._imageDataLen += this._cachedHuffmanTablesLen;
+                }
+            }
+
+            if ((this._imageDataLen + segment.length) >
+                this._imageData.length) {
+                let newLen = this._imageData.length * 2;
+                while (newLen < (this._imageDataLen + segment.length)) {
+                    newLen *= 2;
+                }
+                let newData = new Uint8Array(newLen);
+                newData.set(this._imageData.subarray(0, this._imageDataLen));
+                this._imageData = newData;
+            }
+
+            this._imageData.set(segment, this._imageDataLen);
+            this._imageDataLen += segment.length;
+
+            // End of image?
+            if (segment[1] === 0xD9) {
+                break;
+            }
         }
 
-        const sofIndex = this._segments.findIndex(
-            x => x[1] == 0xC0 || x[1] == 0xC2
-        );
-        if (sofIndex == -1) {
-            throw new Error("Illegal JPEG image without SOF");
-        }
+        display.imageRect(x, y, width, height, "image/jpeg",
+                          this._imageData);
 
-        if (!seenQuantTables) {
-            this._segments.splice(sofIndex+1, 0,
-                                  this._cachedQuantTables);
-        }
-        if (!seenHuffmanTables) {
-            this._segments.splice(sofIndex+1, 0,
-                                  this._cachedHuffmanTables);
-        }
+        this._seenQuantTables = false;
+        this._seenHuffmanTables = false;
 
-        let length = 0;
-        for (let segment of this._segments) {
-            length += segment.length;
-        }
-
-        let data = new Uint8Array(length);
-        length = 0;
-        for (let segment of this._segments) {
-            data.set(segment, length);
-            length += segment.length;
-        }
-
-        display.imageRect(x, y, width, height, "image/jpeg", data);
-
-        this._segments = [];
+        this._imageDataLen = 0;
 
         return true;
     }
