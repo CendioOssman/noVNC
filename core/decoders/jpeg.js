@@ -147,40 +147,46 @@ export default class JPEGDecoder {
             return null;
         }
 
-        let marker = sock.rQshift8();
-        if (marker != 0xFF) {
+        // Constantly peek the data to avoid copies
+        let segment = sock.rQpeekBytes(2, false);
+
+        if (segment[0] != 0xFF) {
             throw new Error("Illegal JPEG marker received (byte: " +
-                               marker + ")");
+                               segment[0] + ")");
         }
-        let type = sock.rQshift8();
+        let type = segment[1];
         if (type >= 0xD0 && type <= 0xD9 || type == 0x01) {
             // No length after marker
-            return new Uint8Array([marker, type]);
+            return sock.rQshiftBytes(2, false);
         }
 
-        if (sock.rQwait("JPEG", 2, 2)) {
+        if (sock.rQwait("JPEG", 4)) {
             return null;
         }
 
-        let length = sock.rQshift16();
+        segment = sock.rQpeekBytes(4, false);
+
+        let length = segment[2] << 8 | segment[3];
         if (length < 2) {
             throw new Error("Illegal JPEG length received (length: " +
                                length + ")");
         }
 
-        if (sock.rQwait("JPEG", length-2, 4)) {
+        if (sock.rQwait("JPEG", length+2)) {
             return null;
         }
+
+        segment = sock.rQpeekBytes(length+2, false);
 
         let extra = 0;
         if (type === 0xDA) {
             // start of scan
             extra += 2;
             while (true) {
-                if (sock.rQwait("JPEG", length-2+extra, 4)) {
+                if (sock.rQwait("JPEG", length+2+extra)) {
                     return null;
                 }
-                let data = sock.rQpeekBytes(length-2+extra, false);
+                let data = sock.rQpeekBytes(length+2+extra, false);
                 if (data.at(-2) === 0xFF && data.at(-1) !== 0x00 &&
                     !(data.at(-1) >= 0xD0 && data.at(-1) <= 0xD7)) {
                     extra -= 2;
@@ -190,13 +196,6 @@ export default class JPEGDecoder {
             }
         }
 
-        let segment = new Uint8Array(2 + length + extra);
-        segment[0] = marker;
-        segment[1] = type;
-        segment[2] = length >> 8;
-        segment[3] = length;
-        segment.set(sock.rQshiftBytes(length-2+extra, false), 4);
-
-        return segment;
+        return sock.rQshiftBytes(length+2+extra, false);
     }
 }
