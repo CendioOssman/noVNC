@@ -181,18 +181,31 @@ export default class JPEGDecoder {
         let extra = 0;
         if (type === 0xDA) {
             // start of scan
-            extra += 2;
+            if (sock.rQwait("JPEG", length+2 + 2)) {
+                return null;
+            }
+
+            let len = sock.rQlen();
+            let data = sock.rQpeekBytes(len, false);
+
             while (true) {
-                if (sock.rQwait("JPEG", length+2+extra)) {
+                let idx = data.indexOf(0xFF, length+2+extra);
+                if (idx === -1) {
                     return null;
                 }
-                let data = sock.rQpeekBytes(length+2+extra, false);
-                if (data.at(-2) === 0xFF && data.at(-1) !== 0x00 &&
-                    !(data.at(-1) >= 0xD0 && data.at(-1) <= 0xD7)) {
-                    extra -= 2;
-                    break;
+
+                if (idx === len-1) {
+                    return null;
                 }
-                extra++;
+
+                if (data.at(idx+1) === 0x00 ||
+                    (data.at(idx+1) >= 0xD0 && data.at(idx+1) <= 0xD7)) {
+                    extra = idx+2 - (length+2);
+                    continue;
+                }
+
+                extra = idx - (length+2);
+                break;
             }
         }
 
