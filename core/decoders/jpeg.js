@@ -132,7 +132,7 @@ export default class JPEGDecoder {
         }
 
         display.imageRect(x, y, width, height, "image/jpeg",
-                          this._imageData);
+                          this._imageData.subarray(0, this._imageDataLen));
 
         this._seenQuantTables = false;
         this._seenHuffmanTables = false;
